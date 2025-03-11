@@ -549,7 +549,6 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
 
 #else
 
-  if (pixel_buffer_.data != nullptr) free(pixel_buffer_.data);
   pixel_buffer_.block_count = (dejitter_pixels + PIXEL_BLOCK_SIZE - 1) / PIXEL_BLOCK_SIZE;
   if (pixel_buffer_.block_count > MAX_PIXEL_BLOCK_COUNT) {
     ESP_LOGE(TAG, "Too many pixel buffer blocks (%d)", pixel_buffer_.block_count);
@@ -563,14 +562,10 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
     ESP_LOGE(TAG, "Failed to allocate LightShow pixel buffer");
     return ESP_ERR_NO_MEM;
   }
+  pixel_buffer_.events = xEventGroupCreate();
   if (pixel_buffer_.events == NULL) {
-    pixel_buffer_.events = xEventGroupCreate();
-    if (pixel_buffer_.events == NULL) {
-      ESP_LOGE(TAG, "Failed to allocate LightShow pixel buffer events");
-      return ESP_ERR_NO_MEM;
-    }
-  } else {
-    xEventGroupClearBits(pixel_buffer_.events, ~0U);
+    ESP_LOGE(TAG, "Failed to allocate LightShow pixel buffer events");
+    return ESP_ERR_NO_MEM;
   }
 
 #endif  // USE_IDF_RINGBUF
