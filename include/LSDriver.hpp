@@ -61,7 +61,7 @@ struct IOConfig {
 static const IOConfig CONFIG_WS2812 = {
     .baud_rate = 3200000,      // 1.25ns per WS2812 bit (4bits)
     .jitter_budget_us = 1200,  // Absorbs 1.2ms scheduling jitter
-    .reset_us = 280,           // This may vary a lot across models.
+    .reset_us = 260,           // This may vary a lot across models.
     .invert_logic = true,
     .data_map = {
         // UART sends less significant bit (LSB) first

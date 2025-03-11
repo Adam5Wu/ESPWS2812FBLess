@@ -3,7 +3,6 @@
 #define ZWESP8266_LSFRAME
 
 #include <string>
-#include <vector>
 
 #include "LSPixel.hpp"
 
@@ -77,7 +76,7 @@ struct DotState {
   // (Hence the maximum dot size will be 26.5 pixels.)
   //
   // Non-zero glow will add to the dot's total "size", which is rendered
-  // using a ~2.83-sigma gaussian distribution (i.e. sigma ~= size/5.66).
+  // using a ~3.16-sigma gaussian distribution (i.e. sigma ~= size/6.32).
   uint8_t glow;
   // Position of the object in the strip [0, 1000], where
   // 0 is the beginning of the strip and 1000 is the end.
@@ -98,12 +97,7 @@ class ColorDotFrame : public Frame {
   }
 
   FrameType Type() const override { return FrameType::kColorDot; }
-  PixelWithStatus GetPixelData() override {
-    StripSizeType scan_pos = index_++;
-    if (scan_pos >= start_pos && scan_pos <= end_pos)
-      return {.pixel = pix_[scan_pos - start_pos], .end_of_frame = false};
-    return {.pixel = bgcolor, .end_of_frame = scan_pos >= size};
-  }
+  PixelWithStatus GetPixelData() override;
 
 #ifndef NDEBUG
   std::string DebugString() const override {
@@ -115,8 +109,9 @@ class ColorDotFrame : public Frame {
 #endif
 
  private:
-  StripSizeType start_pos, end_pos;
-  std::vector<RGB8BPixel> pix_;
+  StripSizeType start_pos_, end_pos_;
+  float dot_pos_;        // The real position of the dot on the strip
+  float two_sigma_sqr_;  // Deterministic component of the Gaussian PDF exponent
 
   void Init();
 };
