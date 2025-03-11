@@ -3,6 +3,7 @@
 #define ZWESP8266_LSTARGET
 
 #include <cstdint>
+#include <optional>
 #include <memory>
 
 #include "esp_err.h"
@@ -13,7 +14,7 @@
 
 namespace zw_esp8266::lightshow {
 
-inline constexpr uint32_t kMaxTargetDurationMS = 180 * 1000;
+inline constexpr uint32_t kMaxTargetDurationMS = 360 * 1000;
 
 // Represents a pre-defined state of the light-show.
 // The light-show will transition to this state over a certain duration.
@@ -48,6 +49,7 @@ class UniformColorTarget : public Target {
 
  protected:
   const RGB8BPixel color_;
+
   RGB8BPixel base_color_;
   StripSizeType frame_size_;
 
@@ -56,17 +58,24 @@ class UniformColorTarget : public Target {
 
 class DotTarget : public Target {
  public:
-  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, DotState dot);
+  static DataOrError<std::unique_ptr<Target>> Create(
+      uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
   esp_err_t RenderInit(const Frame& base_frame) override;
   std::unique_ptr<Frame> RenderFrame(uint32_t time_passed_us) override;
 
  protected:
+  // The target dot state
   const DotState dot_;
+  // If provided, will be used as base_dot if the base_frame is not a `ColorDotFrame`.
+  // (Otherwise, will start with a hard-coded default dot, see `RenderInit()`.)
+  const std::optional<DotState> def_dot_;
+
   DotState base_dot_;
   RGB8BPixel bg_color_;
   StripSizeType frame_size_;
 
-  DotTarget(uint32_t duration_us, DotState dot) : Target(duration_us), dot_(dot) {}
+  DotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
+      : Target(duration_us), dot_(dot), def_dot_(def_dot) {}
 };
 
 }  // namespace zw_esp8266::lightshow

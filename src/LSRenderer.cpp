@@ -2,6 +2,7 @@
 
 #include "esp_timer.h"
 #include "esp_log.h"
+
 namespace zw_esp8266::lightshow {
 
 inline constexpr char TAG[] = "LSRenderer";
