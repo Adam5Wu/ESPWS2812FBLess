@@ -21,6 +21,7 @@ namespace LS = ::zw_esp8266::lightshow;
 
 inline constexpr LS::StripSizeType STRIP_SIZE = 111;
 inline constexpr uint8_t TARGET_FPS = 80;
+inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
 
 inline constexpr uint16_t RENDER_TASK_STACK = 1200;
 inline constexpr UBaseType_t RENDER_TASK_PRIORITY = 5;
@@ -40,7 +41,7 @@ esp_err_t _lightshow() {
            uxTaskGetStackHighWaterMark(NULL));
   ESP_LOGI(TAG, "Setting up LightShow driver...");
   // The jitter buffer is allocated in this API
-  ESP_RETURN_ON_ERROR(LS::DriverSetup(LS::CONFIG_WS2812, renderer.get()));
+  ESP_RETURN_ON_ERROR(LS::DriverSetup(CONFIG_WS2812, renderer.get()));
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));
 
@@ -89,7 +90,7 @@ esp_err_t _lightshow() {
            uxTaskGetStackHighWaterMark(NULL));
   ESP_LOGI(TAG, "Shutdown LightShow driver...");
   // Expect return error code
-  LS::DriverSetup(LS::CONFIG_WS2812, nullptr);
+  LS::DriverSetup(CONFIG_WS2812, nullptr);
 
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));
