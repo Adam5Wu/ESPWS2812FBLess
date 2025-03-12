@@ -8,8 +8,8 @@
 
 #include "esp_err.h"
 
-#include "LSPixel.hpp"
 #include "LSUtils.hpp"
+#include "LSPixel.hpp"
 #include "LSFrame.hpp"
 
 namespace zw_esp8266::lightshow {

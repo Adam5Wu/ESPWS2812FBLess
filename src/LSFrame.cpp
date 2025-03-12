@@ -5,6 +5,7 @@
 #include "esp_log.h"
 
 #include "LSUtils.hpp"
+#include "LSPixel.hpp"
 
 namespace zw_esp8266::lightshow {
 namespace {

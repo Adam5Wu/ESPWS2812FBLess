@@ -3,6 +3,10 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 
+#include "LSPixel.hpp"
+#include "LSFrame.hpp"
+#include "LSTarget.hpp"
+
 namespace zw_esp8266::lightshow {
 
 inline constexpr char TAG[] = "LSRenderer";

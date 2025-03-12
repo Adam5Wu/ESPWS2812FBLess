@@ -2,8 +2,9 @@
 
 #include "esp_log.h"
 
-#include "LSFrame.hpp"
 #include "LSUtils.hpp"
+#include "LSPixel.hpp"
+#include "LSFrame.hpp"
 
 namespace zw_esp8266::lightshow {
 namespace {

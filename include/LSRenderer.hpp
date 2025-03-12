@@ -13,9 +13,9 @@
 #include "freertos/semphr.h"
 #include "freertos/event_groups.h"
 
+#include "LSUtils.hpp"
 #include "LSFrame.hpp"
 #include "LSTarget.hpp"
-#include "LSUtils.hpp"
 
 namespace zw_esp8266::lightshow {
 

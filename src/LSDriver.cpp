@@ -15,12 +15,11 @@
 #include "esp8266/timer_register.h"
 
 #include "ESPIDF_shim.h"
+#include "LSPixel.hpp"
+#include "LSFrame.hpp"
+#include "LSRenderer.hpp"
 
-// The IDF ring buffer is generic, but not very efficient.
-// By default use a more efficient custom ring buffer.
-#define USE_IDF_RINGBUF 0
-
-#if USE_IDF_RINGBUF
+#ifndef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 #include "freertos/ringbuf.h"
 #endif
 
@@ -49,12 +48,7 @@ Renderer* renderer_ = nullptr;
 // Lookup table for the time to deplete the TX buffer
 uint16_t buffer_depletion_time_[UART_TX_FIFO_THRESHOLD + 1];
 
-#if USE_IDF_RINGBUF
-
-// Ring buffer for absorbing scheduling jitters
-RingbufHandle_t ringbuf_ = NULL;
-
-#else
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 
 inline constexpr uint8_t PIXEL_BLOCK_SIZE =
     (UART_FIFO_LEN - UART_TX_FIFO_THRESHOLD) / sizeof(UARTPixel);
@@ -94,7 +88,12 @@ void IRAM_ATTR _return_pixel_block_from_isr() {
   pixel_buffer_.read_block = (next_block == write_block) ? -1 : next_block;
 }
 
-#endif  // USE_IDF_RINGBUF
+#else
+
+// Ring buffer for absorbing scheduling jitters
+RingbufHandle_t ringbuf_ = NULL;
+
+#endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 
 struct {
   // How many bytes per frame
@@ -186,14 +185,13 @@ check_idle:
       break;
 
     default: {  // 2+ We are idling
-#if USE_IDF_RINGBUF
-      // Check if we have data in ring buffer
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
+      bool can_start = pixel_buffer_.read_block >= 0;
+#else
       UBaseType_t items_waiting;
       vRingbufferGetInfo(ringbuf_, NULL, NULL, NULL, &items_waiting);
       bool can_start = items_waiting >= std::min(UART_FIFO_LEN >> 3, (int)state_.frame_size);
-#else
-      bool can_start = pixel_buffer_.read_block >= 0;
-#endif  // USE_IDF_RINGBUF
+#endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
       if (can_start) {
         // We are on, switch to receiving mode.
         // ets_printf("* Frame Start!\n");
@@ -238,22 +236,22 @@ receive_data:
   // NOTE: the data is in "compact" color component representation
   size_t data_to_receive = std::min(frame_rem, (StripSizeType)(tx_fifo_free >> 2));
 
-#if USE_IDF_RINGBUF
-  bool ready_to_receive = data_to_receive > 0;
-#else
-  // We can only process a whole pixel block at a time
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
+  // The pixel block is sized such that we only need to process one block at a time
   bool ready_to_receive = (data_to_receive >= (PIXEL_BLOCK_SIZE * sizeof(RGB8BPixel))) ||
                           (data_to_receive == frame_rem);
+#else
+  bool ready_to_receive = data_to_receive > 0;
 #endif
 
   if (ready_to_receive) {
     // Try to receive some data
-#if USE_IDF_RINGBUF
-    size_t data_len = 0;
-    auto pixel_data = (uint8_t*)xRingbufferReceiveUpToFromISR(ringbuf_, &data_len, data_to_receive);
-#else
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
     auto pixel_data = (uint8_t*)_recv_pixel_block_from_isr();
     size_t data_len = std::min((size_t)(PIXEL_BLOCK_SIZE * sizeof(RGB8BPixel)), data_to_receive);
+#else
+    size_t data_len = 0;
+    auto pixel_data = (uint8_t*)xRingbufferReceiveUpToFromISR(ringbuf_, &data_len, data_to_receive);
 #endif
 
     if (pixel_data == nullptr) {
@@ -300,13 +298,12 @@ receive_data:
         break;
 
       default: {  // We are in discard mode
-#if USE_IDF_RINGBUF
-        // There is nothing to send, just return the buffer
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
+        _return_pixel_block_from_isr();
+#else
         BaseType_t context_switch = pdFALSE;
         vRingbufferReturnItemFromISR(ringbuf_, pixel_data, &context_switch);
         if (context_switch) portYIELD_FROM_ISR();
-#else
-        _return_pixel_block_from_isr();
 #endif
 
         // If we have completed discarding the frame...
@@ -332,12 +329,12 @@ receive_data:
     }
 
     // Done sending, return the buffer
-#if USE_IDF_RINGBUF
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
+    _return_pixel_block_from_isr();
+#else
     BaseType_t context_switch = pdFALSE;
     vRingbufferReturnItemFromISR(ringbuf_, pixel_data, &context_switch);
     if (context_switch) portYIELD_FROM_ISR();
-#else
-    _return_pixel_block_from_isr();
 #endif
   }
 
@@ -423,12 +420,8 @@ void _render_engine(void* param) {
     if (frame != nullptr) {
       // ESP_LOGI(TAG, "%s", frame->DebugString().c_str());
       PixelWithStatus data;
-#if USE_IDF_RINGBUF
-      while (!(data = frame->GetPixelData()).end_of_frame) {
-        // Will wait forever, don't expect failure
-        xRingbufferSend(ringbuf_, &data.pixel, sizeof(data.pixel), portMAX_DELAY);
-      }
-#else
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
+
       PixelBlock* cur_block = nullptr;
       uint8_t block_pos;
       do {
@@ -457,7 +450,15 @@ void _render_engine(void* param) {
           cur_block = nullptr;
         }
       } while (!data.end_of_frame);
-#endif  // USE_IDF_RINGBUF
+
+#else
+
+      while (!(data = frame->GetPixelData()).end_of_frame) {
+        // Will wait forever, don't expect failure
+        xRingbufferSend(ringbuf_, &data.pixel, sizeof(data.pixel), portMAX_DELAY);
+      }
+
+#endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
     }
     // ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
     //          uxTaskGetStackHighWaterMark(NULL));
@@ -471,12 +472,8 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
   // Release facilities from previous set up
   renderer_ = nullptr;
 
-#if USE_IDF_RINGBUF
-  if (ringbuf_ != NULL) {
-    vRingbufferDelete(ringbuf_);
-    ringbuf_ = NULL;
-  }
-#else
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
+
   if (pixel_buffer_.data != nullptr) {
     free(pixel_buffer_.data);
     pixel_buffer_.data = nullptr;
@@ -485,7 +482,15 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
     vEventGroupDelete(pixel_buffer_.events);
     pixel_buffer_.events = NULL;
   }
-#endif  // USE_IDF_RINGBUF
+
+#else
+
+  if (ringbuf_ != NULL) {
+    vRingbufferDelete(ringbuf_);
+    ringbuf_ = NULL;
+  }
+
+#endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 
   if (renderer == nullptr) {
     ESP_LOGE(TAG, "No LightShow renderer");
@@ -535,19 +540,7 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
   uint16_t pixel_time_us = (sizeof(UARTPixel) * 8000000U) / config.baud_rate;
   StripSizeType dejitter_pixels = (config.jitter_budget_us + pixel_time_us - 1) / pixel_time_us;
 
-#if USE_IDF_RINGBUF
-
-  StripSizeType ringbuf_size = dejitter_pixels * sizeof(RGB8BPixel);
-  ESP_LOGI(TAG, "LightShow jitter budget %d us (%d pixels, %d bytes)", config.jitter_budget_us,
-           dejitter_pixels, ringbuf_size);
-  ringbuf_ = xRingbufferCreate(ringbuf_size, RINGBUF_TYPE_BYTEBUF);
-  if (ringbuf_ == nullptr) {
-    ESP_LOGE(TAG, "Failed to allocate LightShow ring buffer for %d pixels (%d bytes)",
-             dejitter_pixels, ringbuf_size);
-    return ESP_ERR_NO_MEM;
-  }
-
-#else
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 
   pixel_buffer_.block_count = (dejitter_pixels + PIXEL_BLOCK_SIZE - 1) / PIXEL_BLOCK_SIZE;
   if (pixel_buffer_.block_count > MAX_PIXEL_BLOCK_COUNT) {
@@ -568,7 +561,19 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
     return ESP_ERR_NO_MEM;
   }
 
-#endif  // USE_IDF_RINGBUF
+#else
+
+  StripSizeType ringbuf_size = dejitter_pixels * sizeof(RGB8BPixel);
+  ESP_LOGI(TAG, "LightShow jitter budget %d us (%d pixels, %d bytes)", config.jitter_budget_us,
+           dejitter_pixels, ringbuf_size);
+  ringbuf_ = xRingbufferCreate(ringbuf_size, RINGBUF_TYPE_BYTEBUF);
+  if (ringbuf_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to allocate LightShow ring buffer for %d pixels (%d bytes)",
+             dejitter_pixels, ringbuf_size);
+    return ESP_ERR_NO_MEM;
+  }
+
+#endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 
   // Precompute the amount of time to send out N bytes
   for (uint8_t i = 0; i <= UART_TX_FIFO_THRESHOLD; i++) {
@@ -593,7 +598,13 @@ esp_err_t DriverStart(uint16_t task_stack, UBaseType_t task_priority) {
   }
 
   // Reset jitter pixel buffer
-#if USE_IDF_RINGBUF
+#ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
+
+  pixel_buffer_.read_block = -1;
+  pixel_buffer_.write_block = 0;
+
+#else
+
   while (true) {
     UBaseType_t items_waiting;
     vRingbufferGetInfo(ringbuf_, NULL, NULL, NULL, &items_waiting);
@@ -604,10 +615,8 @@ esp_err_t DriverStart(uint16_t task_stack, UBaseType_t task_priority) {
     ESP_LOGD(TAG, "Discarding %d bytes from ring buffer", discard_size);
     vRingbufferReturnItem(ringbuf_, discard_data);
   }
-#else
-  pixel_buffer_.read_block = -1;
-  pixel_buffer_.write_block = 0;
-#endif  // USE_IDF_RINGBUF
+
+#endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 
   // Initialize internal states.
   state_ = {};

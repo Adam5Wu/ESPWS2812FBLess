@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 
 set(COMPONENT_ADD_INCLUDEDIRS include)
-set(COMPONENT_SRCS "src/LSDriver.cpp"
+set(COMPONENT_SRCS "src/LSFrame.cpp"
+                   "src/LSTarget.cpp"
                    "src/LSRenderer.cpp"
-                   "src/LSTarget.cpp")
+                   "src/LSDriver.cpp")
 
-set(COMPONENT_REQUIRES esp8266 freertos)
+set(COMPONENT_REQUIRES esp8266 freertos esp_ringbuf)
 
 register_component()

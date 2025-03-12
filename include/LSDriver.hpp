@@ -7,10 +7,6 @@
 
 #include "esp_err.h"
 
-#include "FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "freertos/ringbuf.h"
-
 #include "LSRenderer.hpp"
 
 namespace zw_esp8266::lightshow {

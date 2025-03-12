@@ -1,0 +1,48 @@
+menu "Framebuffer-less WS2812 driver"
+
+    config ESP2812FBLESS_CUSTOM_RINGBUF
+        bool "Use a custom ring buffer implementation"
+        default y
+        help
+            Use a built-in custom ring buffer implementation (recommended).
+            It works more efficiently than the generic ring buffer in ESP-IDF.
+
+    choice ESP2812FBLESS_PIXEL_FORMAT
+        prompt "Pixel color format"
+        default ESP2812FBLESS_PIXEL_GRB888
+        help
+            Define LED pixel color format
+
+        config ESP2812FBLESS_PIXEL_RGB888
+            bool "RGB888"
+            help
+                8 bit colors [Red, Green, Blue]
+        
+        config ESP2812FBLESS_PIXEL_RBG888
+            bool "RBG888"
+            help
+                8 bit colors [Red, Blue, Green]
+
+        config ESP2812FBLESS_PIXEL_GRB888
+            bool "GRB888"
+            help
+                8 bit colors [Green, Red, Blue]
+
+        config ESP2812FBLESS_PIXEL_GBR888
+            bool "GBR888"
+            help
+                8 bit colors [Green, Blue, Red]
+
+        config ESP2812FBLESS_PIXEL_BRG888
+            bool "BRG888"
+            help
+                8 bit colors [Blue, Red, Green]
+
+        config ESP2812FBLESS_PIXEL_BGR888
+            bool "BGR888"
+            help
+                8 bit colors [Blue, Green, Red]
+
+    endchoice
+
+endmenu

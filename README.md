@@ -81,7 +81,7 @@ next frame, it should not result in very noticeable visual defects. Basically, d
 better than doing **the wrong thing**.
 
 ## How to use
-Refer to `example/demo.cpp` for a minimalistic example.
+Refer to the `example` directory for a minimalistic demo.
 
 *Caution: the stock ESP8266 RTOS SDK's `timer_struct.h` has an
 [incorrect definition](https://github.com/dsptech/ESP8266_RTOS_SDK/tree/fix_frc1_plus_register_layout).
