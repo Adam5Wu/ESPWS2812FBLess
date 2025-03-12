@@ -63,17 +63,26 @@ class UniformColorFrame : public Frame {
 
 #ifndef NDEBUG
   std::string DebugString() const override {
-    return "UniformColor[" + std::to_string(size) + "] = " + std::to_string(color.r) + ", " +
-           std::to_string(color.g) + ", " + std::to_string(color.b);
+    return "UniformColor: " + std::to_string(color.r) + ", " + std::to_string(color.g) + ", " +
+           std::to_string(color.b);
   }
 #endif
 };
 
 struct DotState {
+  RGB8BPixel color;
+  // "Glow" of the dot in 1/10 of a pixels.
+  // When glow is 0, a dot is exactly 1 pixel wide.
+  // (Hence the maximum dot size will be 26.5 pixels.)
+  //
+  // Non-zero glow will add to the dot's total "size", which is rendered
+  // using a ~3.16-sigma gaussian distribution (i.e. sigma ~= size/6.32).
+  uint8_t glow;
   // Position of the object in the strip [0, 1000], where
   // 0 is the beginning of the strip and 1000 is the end.
+  // The dot will be rendered at the center, hance its "glows" will be
+  // cut-off when it is near the ends of the strip.
   uint16_t pos_pmr;
-  RGB8BPixel color;
 };
 
 // A frame that displays a colored dot
@@ -88,41 +97,23 @@ class ColorDotFrame : public Frame {
   }
 
   FrameType Type() const override { return FrameType::kColorDot; }
-  PixelWithStatus GetPixelData() override {
-    StripSizeType scan_pos = index_++;
-    if (scan_pos == start_pos) return {.pixel = dpix_[0], .end_of_frame = false};
-    if (scan_pos < size && scan_pos == start_pos + 1)
-      return {.pixel = dpix_[1], .end_of_frame = false};
-    return {.pixel = bgcolor, .end_of_frame = scan_pos >= size};
-  }
+  PixelWithStatus GetPixelData() override;
 
 #ifndef NDEBUG
   std::string DebugString() const override {
-    return "ColorDot[" + std::to_string(size) + "] = " + std::to_string(dot.color.r) + ", " +
-           std::to_string(dot.color.g) + ", " + std::to_string(dot.color.b) + " @ " +
-           std::to_string(dot.pos_pmr / 10) + "." + std::to_string(dot.pos_pmr % 10) + "%";
+    return "ColorDot[" + std::to_string(dot.glow / 10 + 1) + "." + std::to_string(dot.glow % 10) +
+           "]: " + std::to_string(dot.color.r) + ", " + std::to_string(dot.color.g) + ", " +
+           std::to_string(dot.color.b) + " @ " + std::to_string(dot.pos_pmr / 10) + "." +
+           std::to_string(dot.pos_pmr % 10) + "%";
   }
 #endif
 
  private:
-  StripSizeType start_pos;
-  RGB8BPixel dpix_[2];
+  StripSizeType start_pos_, end_pos_;
+  float dot_pos_;        // The real position of the dot on the strip
+  float two_sigma_sqr_;  // Deterministic component of the Gaussian PDF exponent
 
-  void Init() {
-    start_pos = (size - 1) * dot.pos_pmr / 1000;
-    uint8_t tpct = ((size - 1) * dot.pos_pmr / 10) % 100;
-    if (tpct) {
-      dpix_[0].u[0] = bgcolor.u[0] + (int16_t)(dot.color.u[0] - bgcolor.u[0]) * (100 - tpct) / 100;
-      dpix_[0].u[1] = bgcolor.u[1] + (int16_t)(dot.color.u[1] - bgcolor.u[1]) * (100 - tpct) / 100;
-      dpix_[0].u[2] = bgcolor.u[2] + (int16_t)(dot.color.u[2] - bgcolor.u[2]) * (100 - tpct) / 100;
-      dpix_[1].u[0] = bgcolor.u[0] + (int16_t)(dot.color.u[0] - bgcolor.u[0]) * tpct / 100;
-      dpix_[1].u[1] = bgcolor.u[1] + (int16_t)(dot.color.u[1] - bgcolor.u[1]) * tpct / 100;
-      dpix_[1].u[2] = bgcolor.u[2] + (int16_t)(dot.color.u[2] - bgcolor.u[2]) * tpct / 100;
-    } else {
-      dpix_[0] = dot.color;
-      dpix_[1] = bgcolor;
-    }
-  }
+  void Init();
 };
 
 }  // namespace zw_esp8266::lightshow

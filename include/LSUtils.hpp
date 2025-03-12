@@ -2,6 +2,7 @@
 #ifndef ZWESP8266_LSUTILS
 #define ZWESP8266_LSUTILS
 
+#include <algorithm>
 #include <variant>
 
 #include "esp_err.h"
@@ -37,6 +38,18 @@ class DataOrError {
   auto UNIQUE_VAR(data_or_error) = (statement);                             \
   if (!UNIQUE_VAR(data_or_error)) return UNIQUE_VAR(data_or_error).error(); \
   val = std::move(*UNIQUE_VAR(data_or_error))
+
+// Computes the permillage value using integer arithmetics.
+inline uint16_t progression_pmr(uint32_t cur, uint32_t total) {
+  assert((cur <= 0xFFFFFFFF / 10) && (total <= 0xFFFFFFFF / 10));
+  return std::min((cur * 10) / (total / 100), 1000U);
+}
+
+// Blend two values using a permillage value.
+inline uint32_t blend_value(uint32_t from, uint32_t to, uint16_t pmr) {
+  assert((from <= 0xFFFFFFFF / 1000) && (to <= 0xFFFFFFFF / 1000) && (pmr <= 1000));
+  return from + (int32_t)(to - from) * pmr / 1000;
+}
 
 }  // namespace zw_esp8266::lightshow
 

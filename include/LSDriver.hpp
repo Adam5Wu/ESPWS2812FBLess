@@ -7,10 +7,6 @@
 
 #include "esp_err.h"
 
-#include "FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "freertos/ringbuf.h"
-
 #include "LSRenderer.hpp"
 
 namespace zw_esp8266::lightshow {
@@ -58,10 +54,10 @@ struct IOConfig {
   uint8_t data_map[4];
 };
 
-static const IOConfig CONFIG_WS2812 = {
+static const IOConfig CONFIG_WS2812_TEMPLATE = {
     .baud_rate = 3200000,      // 1.25ns per WS2812 bit (4bits)
     .jitter_budget_us = 1200,  // Absorbs 1.2ms scheduling jitter
-    .reset_us = 280,           // This may vary a lot across models.
+    .reset_us = 40,            // "Classic" WS2811 and WS2812b reset time
     .invert_logic = true,
     .data_map = {
         // UART sends less significant bit (LSB) first
@@ -73,6 +69,13 @@ static const IOConfig CONFIG_WS2812 = {
         /* "11" = 1 110 111 0*/ 0b000100,
     },
 };
+
+inline IOConfig CONFIG_WS2812_CLASSIC() { return CONFIG_WS2812_TEMPLATE; }
+inline IOConfig CONFIG_WS2812_NEW() {
+  IOConfig config = CONFIG_WS2812_TEMPLATE;
+  config.reset_us = 260;  // The new revision has a more leinent reset time
+  return config;
+}
 
 struct IOStats {
   uint32_t frames_rendered;

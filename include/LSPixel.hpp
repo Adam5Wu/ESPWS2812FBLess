@@ -5,33 +5,46 @@
 #include <cstdint>
 #include <string.h>
 
+#include "sdkconfig.h"
+
 namespace zw_esp8266::lightshow {
 
-union RGB888 {
-  struct __attribute__((packed)) {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-  };
-  uint8_t u[3];
+#define DECLARE_RGB8BPIXEL(name, c1, c2, c3)                                      \
+  union name {                                                                    \
+    struct __attribute__((packed)) {                                              \
+      uint8_t c1;                                                                 \
+      uint8_t c2;                                                                 \
+      uint8_t c3;                                                                 \
+    };                                                                            \
+    uint8_t u[3];                                                                 \
+    name() = default;                                                             \
+    name(uint8_t r8, uint8_t g8, uint8_t b8) : c1(c1##8), c2(c2##8), c3(c3##8) {} \
+  }
 
-  RGB888() = default;
-  RGB888(uint8_t r8, uint8_t g8, uint8_t b8) : r(r8), g(g8), b(b8) {}
-};
+DECLARE_RGB8BPIXEL(RGB888, r, g, b);
+DECLARE_RGB8BPIXEL(RBG888, r, b, g);
+DECLARE_RGB8BPIXEL(GRB888, g, r, b);
+DECLARE_RGB8BPIXEL(GBR888, g, b, r);
+DECLARE_RGB8BPIXEL(BRG888, b, r, g);
+DECLARE_RGB8BPIXEL(BGR888, b, g, r);
 
-union GRB888 {
-  struct __attribute__((packed)) {
-    uint8_t g;
-    uint8_t r;
-    uint8_t b;
-  };
-  uint8_t u[3];
+#undef DECLARE_8BPIXELFORMAT
 
-  GRB888() = default;
-  GRB888(uint8_t r8, uint8_t g8, uint8_t b8) : g(g8), r(r8), b(b8) {}
-};
-
+#if defined(CONFIG_ESP2812FBLESS_PIXEL_RGB888)
+using RGB8BPixel = RGB888;
+#elif defined(CONFIG_ESP2812FBLESS_PIXEL_RBG888)
+using RGB8BPixel = RBG888;
+#elif defined(CONFIG_ESP2812FBLESS_PIXEL_GRB888)
 using RGB8BPixel = GRB888;
+#elif defined(CONFIG_ESP2812FBLESS_PIXEL_GBR888)
+using RGB8BPixel = GBR888;
+#elif defined(CONFIG_ESP2812FBLESS_PIXEL_BRG888)
+using RGB8BPixel = BRG888;
+#elif defined(CONFIG_ESP2812FBLESS_PIXEL_BGR888)
+using RGB8BPixel = BGR888;
+#else
+#error "Unrecognized pixel format configuration!"
+#endif
 
 inline bool operator==(const RGB8BPixel& lhs, const RGB8BPixel& rhs) {
   return memcmp(&lhs, &rhs, sizeof(RGB8BPixel)) == 0;

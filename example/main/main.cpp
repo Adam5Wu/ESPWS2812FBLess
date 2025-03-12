@@ -19,8 +19,9 @@ namespace {
 inline constexpr char TAG[] = "Main";
 namespace LS = ::zw_esp8266::lightshow;
 
-inline constexpr LS::StripSizeType STRIP_SIZE = 800;
-inline constexpr uint8_t TARGET_FPS = 40;
+inline constexpr LS::StripSizeType STRIP_SIZE = 111;
+inline constexpr uint8_t TARGET_FPS = 80;
+inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
 
 inline constexpr uint16_t RENDER_TASK_STACK = 1200;
 inline constexpr UBaseType_t RENDER_TASK_PRIORITY = 5;
@@ -32,15 +33,15 @@ esp_err_t _lightshow() {
   // You can pre-program transitions before starting the driver
   ESP_LOGI(TAG, "Adding some LightShow targets...");
   ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x32, 0x00, 0x00})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x00, 0x32, 0x16})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x16, 0x00, 0x32})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x00, 0x16, 0x32})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x16, 0x32, 0x08})));
   ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x00, 0x02, 0x01})));
 
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));
   ESP_LOGI(TAG, "Setting up LightShow driver...");
   // The jitter buffer is allocated in this API
-  ESP_RETURN_ON_ERROR(LS::DriverSetup(LS::CONFIG_WS2812, renderer.get()));
+  ESP_RETURN_ON_ERROR(LS::DriverSetup(CONFIG_WS2812, renderer.get()));
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));
 
@@ -56,10 +57,17 @@ esp_err_t _lightshow() {
 
   // You can also add additional transitions after driver starts
   ESP_LOGI(TAG, "Adding some more LightShow targets...");
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(5000, {300, {0x08, 0x32, 0x16}})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(5000, {1000, {0x32, 0x16, 0x08}})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(4000, {200, {0x16, 0x32, 0x08}})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(6000, {0, {0x00, 0x32, 0x00}})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(
+      LS::DotTarget::Create(4000, {.color = {0x08, 0x16, 0x32}, .glow = 50, .pos_pmr = 300},
+                            LS::DotState{.color = {0x00, 0x02, 0x01}, .glow = 50, .pos_pmr = 0})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(
+      LS::DotTarget::Create(5000, {.color = {0x32, 0x16, 0x08}, .glow = 30, .pos_pmr = 1000})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(
+      LS::DotTarget::Create(3000, {.color = {0x16, 0x32, 0x08}, .glow = 80, .pos_pmr = 300})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(
+      LS::DotTarget::Create(2000, {.color = {0x00, 0x24, 0x00}, .glow = 15, .pos_pmr = 100})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(
+      LS::DotTarget::Create(2000, {.color = {0x00, 0x02, 0x01}, .glow = 15, .pos_pmr = 0})));
 
   // Here is how to wait for the targets
   while (true) {
@@ -82,7 +90,7 @@ esp_err_t _lightshow() {
            uxTaskGetStackHighWaterMark(NULL));
   ESP_LOGI(TAG, "Shutdown LightShow driver...");
   // Expect return error code
-  LS::DriverSetup(LS::CONFIG_WS2812, nullptr);
+  LS::DriverSetup(CONFIG_WS2812, nullptr);
 
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));
