@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include "esp_err.h"
 
@@ -56,7 +57,7 @@ struct IOConfig {
 
 static const IOConfig CONFIG_WS2812_TEMPLATE = {
     .baud_rate = 3200000,      // 1.25ns per WS2812 bit (4bits)
-    .jitter_budget_us = 1200,  // Absorbs 1.2ms scheduling jitter
+    .jitter_budget_us = 1200,  // Absorbs ~1.2ms scheduling jitter
     .reset_us = 40,            // "Classic" WS2811 and WS2812b reset time
     .invert_logic = true,
     .data_map = {
@@ -71,10 +72,16 @@ static const IOConfig CONFIG_WS2812_TEMPLATE = {
 };
 
 inline IOConfig CONFIG_WS2812_CLASSIC() { return CONFIG_WS2812_TEMPLATE; }
-inline IOConfig CONFIG_WS2812_NEW() {
+inline IOConfig CONFIG_WS2812_CUSTOM(uint16_t reset_us,
+                                     std::optional<uint16_t> jitter_budget_us = std::nullopt) {
   IOConfig config = CONFIG_WS2812_TEMPLATE;
-  config.reset_us = 260;  // The new revision has a more leinent reset time
+  if (jitter_budget_us) config.jitter_budget_us = *jitter_budget_us;
+  config.reset_us = reset_us;
   return config;
+}
+inline IOConfig CONFIG_WS2812_NEW() {
+  // The new revision has a more leinent reset time
+  return CONFIG_WS2812_CUSTOM(260);
 }
 
 struct IOStats {

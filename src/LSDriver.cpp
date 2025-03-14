@@ -37,10 +37,8 @@ using UARTPixel = uint8_t[8 * 3 / 2];
 inline constexpr uint8_t UART_TX_FIFO_THRESHOLD = sizeof(UARTPixel);
 // The FRC1 counter can only hold a 23 bit value
 inline constexpr uint32_t FRC1_COUNTER_LIMIT = (1 << 23) - 1;
-
-inline constexpr uint16_t FRAME_UNDERFLOW_MARGIN = 10;
-inline constexpr uint16_t HW_TIMER_COUNTER_MIN = 10;
-inline constexpr uint16_t RENDER_ENGINE_PRIORITY = 6;
+// The overhead of the ISR in microseconds (at 80MHz)
+inline constexpr uint16_t ISR_OVERHEAD_80MHZ = 30;
 
 IOConfig config_ = {};
 Renderer* renderer_ = nullptr;
@@ -92,6 +90,7 @@ void IRAM_ATTR _return_pixel_block_from_isr() {
 
 // Ring buffer for absorbing scheduling jitters
 RingbufHandle_t ringbuf_ = NULL;
+StripSizeType ringbuf_size = 0;
 
 #endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
 
@@ -101,6 +100,9 @@ struct {
   StripSizeType frame_size;
   // Which byte are we currently receiving
   StripSizeType frame_pos;
+  // How much time to leave as a buffer when HW timer wakeup with frame
+  // underflow sentinel set, before we consider the underflow happened.
+  uint16_t frame_underflow_margin;
   // Tracking the underflow state of the frame
   // 0 = normal
   // 1 = underflow sentinel
@@ -186,11 +188,22 @@ check_idle:
 
     default: {  // 2+ We are idling
 #ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
-      bool can_start = pixel_buffer_.read_block >= 0;
+      BlockIdxType blocks_available =
+          (pixel_buffer_.read_block < 0)
+              ? 0
+              : ((pixel_buffer_.write_block > pixel_buffer_.read_block)
+                     ? (pixel_buffer_.write_block - pixel_buffer_.read_block)
+                 : (pixel_buffer_.write_block < 0)
+                     ? pixel_buffer_.block_count
+                     : (pixel_buffer_.block_count - pixel_buffer_.read_block +
+                        pixel_buffer_.write_block));
+      bool can_start =
+          (blocks_available >= pixel_buffer_.block_count) ||
+          (blocks_available * PIXEL_BLOCK_SIZE * sizeof(RGB8BPixel) >= (state_.frame_size / 2));
 #else
       UBaseType_t items_waiting;
       vRingbufferGetInfo(ringbuf_, NULL, NULL, NULL, &items_waiting);
-      bool can_start = items_waiting >= std::min(UART_FIFO_LEN >> 3, (int)state_.frame_size);
+      bool can_start = (items_waiting >= ringbuf_size) || (items_waiting >= state_.frame_size / 2);
 #endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
       if (can_start) {
         // We are on, switch to receiving mode.
@@ -261,7 +274,7 @@ receive_data:
           // The time needed to send remaining data + 75% of reset time
           uint16_t underflow_threshold =
               buffer_depletion_time_[std::min(tx_fifo_rem, UART_TX_FIFO_THRESHOLD)] +
-              config_.reset_us - FRAME_UNDERFLOW_MARGIN;
+              config_.reset_us - state_.frame_underflow_margin;
           // Schedule a one-shot hw_timer event to wait for data
           // Hopefully some data will arrive before the deadline!
           _hw_timer_rearm(underflow_threshold);
@@ -563,7 +576,7 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
 
 #else
 
-  StripSizeType ringbuf_size = dejitter_pixels * sizeof(RGB8BPixel);
+  ringbuf_size = dejitter_pixels * sizeof(RGB8BPixel);
   ESP_LOGI(TAG, "LightShow jitter budget %d us (%d pixels, %d bytes)", config.jitter_budget_us,
            dejitter_pixels, ringbuf_size);
   ringbuf_ = xRingbufferCreate(ringbuf_size, RINGBUF_TYPE_BYTEBUF);
@@ -621,6 +634,10 @@ esp_err_t DriverStart(uint16_t task_stack, UBaseType_t task_priority) {
   // Initialize internal states.
   state_ = {};
   state_.frame_size = renderer_->StripSize() * sizeof(RGB8BPixel);
+  state_.frame_underflow_margin = ISR_OVERHEAD_80MHZ;
+  if (g_esp_ticks_per_us > 80) {
+    state_.frame_underflow_margin /= 2;
+  }
   state_.frame_idle = 1;  // Start in end of frame state
 
   // Initialize hardware facilities
