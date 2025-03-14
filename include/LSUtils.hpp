@@ -39,16 +39,24 @@ class DataOrError {
   if (!UNIQUE_VAR(data_or_error)) return UNIQUE_VAR(data_or_error).error(); \
   val = std::move(*UNIQUE_VAR(data_or_error))
 
-// Computes the permillage value using integer arithmetics.
+inline constexpr uint32_t PROGRESSION_MAX_DIVNUM = UINT32_MAX >> 4;
+inline constexpr uint32_t PROGRESSION_MIN_DIVISOR = 1U << 6;
+inline constexpr uint32_t PROGRESSION_DENOM = 1U << 10;
+// Computes approx-permillage value using integer arithmetics.
+// - Standard permillage is defined as N/1000;
+// - We approximate it as N/1024 for more efficient computation.
 inline uint16_t progression_pmr(uint32_t cur, uint32_t total) {
-  assert((cur <= 0xFFFFFFFF / 10) && (total <= 0xFFFFFFFF / 10));
-  return std::min((cur * 10) / (total / 100), 1000U);
+  assert(cur <= PROGRESSION_MAX_DIVNUM);
+  return (total >= PROGRESSION_MIN_DIVISOR) ? std::min((cur << 4) / (total >> 6), PROGRESSION_DENOM)
+                                            : PROGRESSION_DENOM;
 }
 
-// Blend two values using a permillage value.
+inline constexpr uint32_t BLEND_MAX_VAL = UINT32_MAX / PROGRESSION_DENOM;
+
+// Blend two values using the above approx-permillage value.
 inline uint32_t blend_value(uint32_t from, uint32_t to, uint16_t pmr) {
-  assert((from <= 0xFFFFFFFF / 1000) && (to <= 0xFFFFFFFF / 1000) && (pmr <= 1000));
-  return from + (int32_t)(to - from) * pmr / 1000;
+  assert((from <= BLEND_MAX_VAL) && (to <= BLEND_MAX_VAL) && (pmr <= PROGRESSION_DENOM));
+  return from + (((int32_t)(to - from) * pmr) >> 10);
 }
 
 }  // namespace zw_esp8266::lightshow

@@ -19,7 +19,7 @@ namespace {
 inline constexpr char TAG[] = "Main";
 namespace LS = ::zw_esp8266::lightshow;
 
-inline constexpr LS::StripSizeType STRIP_SIZE = 111;
+inline constexpr LS::StripSizeType STRIP_SIZE = 100;
 inline constexpr uint8_t TARGET_FPS = 80;
 inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
 

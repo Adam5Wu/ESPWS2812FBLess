@@ -14,7 +14,7 @@
 
 namespace zw_esp8266::lightshow {
 
-inline constexpr uint32_t kMaxTargetDurationMS = 360 * 1000;
+inline constexpr uint32_t kMaxTargetDurationMS = PROGRESSION_MAX_DIVNUM / 1000;
 
 // Represents a pre-defined state of the light-show.
 // The light-show will transition to this state over a certain duration.
@@ -56,6 +56,7 @@ class UniformColorTarget : public Target {
   UniformColorTarget(uint32_t duration_us, RGB8BPixel color) : Target(duration_us), color_(color) {}
 };
 
+// A target that displays a (moving and glowing) colored dot.
 class DotTarget : public Target {
  public:
   static DataOrError<std::unique_ptr<Target>> Create(

@@ -15,7 +15,7 @@ inline constexpr char TAG[] = "LSFrame";
 }  // namespace
 
 void ColorDotFrame::Init() {
-  dot_pos_ = (float)(size - 1) * dot.pos_pmr / 1000;
+  dot_pos_ = (float)(size - 1) * dot.pos_pmr / PROGRESSION_DENOM;
 
   float half_dot_size = ((float)dot.glow / 10 + 1) / 2;
   start_pos_ = std::max((int32_t)std::lroundf(dot_pos_ - half_dot_size), 0);
