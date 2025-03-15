@@ -93,7 +93,9 @@ The APIs are broken down into two parts: the driver, and the frame rendering.
 
 #### Driver Interface
 The driver API interface is pretty simple and self-explanatory. Notable common adjustment levers are:
-1. `IOConfig::reset_us`: You want to set this value as close to your LED's **lower bound** as possible.
+1. `IOConfig::pixel_format`: You can select one of six permutations of RGB color ordering. Please refer
+   to your LED's component datasheet;
+2. `IOConfig::reset_us`: You want to set this value as close to your LED's **lower bound** as possible.
    
    You are recommended to *start* with referring to your LED's component datasheet, but do *NOT* solely
    rely on that. Instead, test it out by running it with the driver. For example:
@@ -110,7 +112,7 @@ The driver API interface is pretty simple and self-explanatory. Notable common a
    [frame underflow](#frame-underflow-handling) in case it happens, and apply proper handling to
    minimize visual defects.
 
-2. `DriverStart()` parameters, `task_stack` and `task_priority`:
+3. `DriverStart()` parameters, `task_stack` and `task_priority`:
    - Pixel data are [generated dynamically](#frame-rendering-api), and this process is driven by a
      dedicated task, whose stack space is consumed during this process. If you have a complex
      transition you may run out of the default allocated stack space. When that happens you can
@@ -174,13 +176,11 @@ The rendering APIs reflect the aforementioned concepts:
       - `UniformColorFrame`: render a uniform color across the frame;
       - `ColorDotFrame`: render a color dot on a frame;
     - For your custom fancy targets, you should implement the corresponding frames.
-  - `RGB8BPixel` is an umbrella pixel format for all pixels color data with Red, Green and Blue
-    component each in 8-bits. This is to account for the different ordering of the three components.
-    - Current implementation does not perform dynamic conversion. Instead the color component order is
-      statically defined, e.g via `using RGB8BPixel = GRB888;`. This allows color constants in source
-      code stay agnostic to the LED's color component ordering. (But a rebuild is needed each time
-      you change to a different ordering).
-    - Dynamic color component order conversion may be implemented in the future.
+  - `RGB8BPixel` is a fixed pixel format for 8-bit color data in [Red, Green, Blue] order.
+     - It is *agnostic* to the color ordering of the hardware, which is configurable via the `IOConfig`
+       parameter of the [driver setup API](#driver-interface);
+     - This allows the source code *and* the compile binary to be able to adapt to hardware expect
+       different color ordering.
 
 ### Driver Implementation Notes
 For those who are curious about what's under the hood.

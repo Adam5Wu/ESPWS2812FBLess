@@ -8,10 +8,11 @@ menu "Framebuffer-less WS2812 driver"
             It works more efficiently than the generic ring buffer in ESP-IDF.
 
     choice ESP2812FBLESS_PIXEL_FORMAT
-        prompt "Pixel color format"
+        prompt "Default pixel color format"
         default ESP2812FBLESS_PIXEL_GRB888
         help
-            Define LED pixel color format
+            Default LED pixel color format.
+            Can be changed at runtime during driver setup.
 
         config ESP2812FBLESS_PIXEL_RGB888
             bool "RGB888"

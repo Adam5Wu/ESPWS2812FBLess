@@ -52,7 +52,7 @@ inline constexpr uint8_t PIXEL_BLOCK_SIZE =
     (UART_FIFO_LEN - UART_TX_FIFO_THRESHOLD) / sizeof(UARTPixel);
 static_assert(PIXEL_BLOCK_SIZE <= 20);
 
-using PixelBlock = RGB8BPixel[PIXEL_BLOCK_SIZE];
+using PixelBlock = RGB8B_FLAT[PIXEL_BLOCK_SIZE];
 using BlockIdxType = int16_t;
 
 inline constexpr BlockIdxType MAX_PIXEL_BLOCK_COUNT = 100;
@@ -199,7 +199,7 @@ check_idle:
                         pixel_buffer_.write_block));
       bool can_start =
           (blocks_available >= pixel_buffer_.block_count) ||
-          (blocks_available * PIXEL_BLOCK_SIZE * sizeof(RGB8BPixel) >= (state_.frame_size / 2));
+          (blocks_available * PIXEL_BLOCK_SIZE * sizeof(RGB8B_FLAT) >= (state_.frame_size / 2));
 #else
       UBaseType_t items_waiting;
       vRingbufferGetInfo(ringbuf_, NULL, NULL, NULL, &items_waiting);
@@ -251,7 +251,7 @@ receive_data:
 
 #ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
   // The pixel block is sized such that we only need to process one block at a time
-  bool ready_to_receive = (data_to_receive >= (PIXEL_BLOCK_SIZE * sizeof(RGB8BPixel))) ||
+  bool ready_to_receive = (data_to_receive >= (PIXEL_BLOCK_SIZE * sizeof(RGB8B_FLAT))) ||
                           (data_to_receive == frame_rem);
 #else
   bool ready_to_receive = data_to_receive > 0;
@@ -261,7 +261,7 @@ receive_data:
     // Try to receive some data
 #ifdef CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
     auto pixel_data = (uint8_t*)_recv_pixel_block_from_isr();
-    size_t data_len = std::min((size_t)(PIXEL_BLOCK_SIZE * sizeof(RGB8BPixel)), data_to_receive);
+    size_t data_len = std::min((size_t)(PIXEL_BLOCK_SIZE * sizeof(RGB8B_FLAT)), data_to_receive);
 #else
     size_t data_len = 0;
     auto pixel_data = (uint8_t*)xRingbufferReceiveUpToFromISR(ringbuf_, &data_len, data_to_receive);
@@ -451,7 +451,8 @@ void _render_engine(void* param) {
           cur_block = &pixel_buffer_.data[write_block];
           block_pos = 0;
         }
-        (*cur_block)[block_pos++] = (data = frame->GetPixelData()).pixel;
+        (data = frame->GetPixelData())
+            .pixel.Transcribe(config_.pixel_format, (*cur_block)[block_pos++]);
         if (data.end_of_frame || block_pos >= PIXEL_BLOCK_SIZE) {
           BlockIdxType ready_block = pixel_buffer_.write_block;
           BlockIdxType next_block = (ready_block + 1) % pixel_buffer_.block_count;
@@ -466,9 +467,11 @@ void _render_engine(void* param) {
 
 #else
 
+      RGB8B_FLAT hw_pixel;
       while (!(data = frame->GetPixelData()).end_of_frame) {
+        data.Transcribe(config_.pixel_format, hw_pixel);
         // Will wait forever, don't expect failure
-        xRingbufferSend(ringbuf_, &data.pixel, sizeof(data.pixel), portMAX_DELAY);
+        xRingbufferSend(ringbuf_, &hw_pixel, sizeof(RGB8B_FLAT), portMAX_DELAY);
       }
 
 #endif  // CONFIG_ESP2812FBLESS_CUSTOM_RINGBUF
@@ -576,7 +579,7 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
 
 #else
 
-  ringbuf_size = dejitter_pixels * sizeof(RGB8BPixel);
+  ringbuf_size = dejitter_pixels * sizeof(RGB8B_FLAT);
   ESP_LOGI(TAG, "LightShow jitter budget %d us (%d pixels, %d bytes)", config.jitter_budget_us,
            dejitter_pixels, ringbuf_size);
   ringbuf_ = xRingbufferCreate(ringbuf_size, RINGBUF_TYPE_BYTEBUF);
@@ -633,7 +636,7 @@ esp_err_t DriverStart(uint16_t task_stack, UBaseType_t task_priority) {
 
   // Initialize internal states.
   state_ = {};
-  state_.frame_size = renderer_->StripSize() * sizeof(RGB8BPixel);
+  state_.frame_size = renderer_->StripSize() * sizeof(RGB8B_FLAT);
   state_.frame_underflow_margin = ISR_OVERHEAD_80MHZ;
   if (g_esp_ticks_per_us > 80) {
     state_.frame_underflow_margin /= 2;

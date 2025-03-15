@@ -43,6 +43,9 @@ struct IOConfig {
   // Refer to the device datasheet to determine appropriate value.
   uint16_t reset_us;
 
+  // Pixel format
+  RGB8BLayout pixel_format;
+
   // Invert serial line logic
   // Set according to how the device data line is driven
   // - True if driven directly by the TX pin;
@@ -59,6 +62,7 @@ static const IOConfig CONFIG_WS2812_TEMPLATE = {
     .baud_rate = 3200000,      // 1.25ns per WS2812 bit (4bits)
     .jitter_budget_us = 1200,  // Absorbs ~1.2ms scheduling jitter
     .reset_us = 40,            // "Classic" WS2811 and WS2812b reset time
+    .pixel_format = RGB8BDefaultLayout,
     .invert_logic = true,
     .data_map = {
         // UART sends less significant bit (LSB) first
