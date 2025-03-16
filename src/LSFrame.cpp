@@ -14,8 +14,53 @@ inline constexpr char TAG[] = "LSFrame";
 
 }  // namespace
 
-void ColorDotFrame::Init() {
-  dot_pos_ = (float)(size - 1) * dot.pos_pmr / PROGRESSION_DENOM;
+//------------------------------------
+// BlenderFrame Implementations
+
+BlenderFrame::BlenderFrame(std::unique_ptr<Frame> base_frame) : Frame(base_frame->size) {
+  // If the base is already a blender frame, avoid nesting in certain situations.
+  if (base_frame->Type() == FrameType::kBlender) {
+    auto& blender_base = static_cast<BlenderFrame&>(*base_frame);
+    // No blend frame or (basically) completely transparent blend frame: keep base frame.
+    if (blender_base.blend_frame_ == nullptr || blender_base.alpha_ <= 1) {
+      base_frame_ = std::move(blender_base.base_frame_);
+      return;
+    }
+    // (Basically) complete opaque blend frame: keep blend frame.
+    if (blender_base.blend_frame_ != nullptr && blender_base.alpha_ == UINT8_MAX) {
+      base_frame_ = std::move(blender_base.blend_frame_);
+      return;
+    }
+  }
+  base_frame_ = std::move(base_frame);
+}
+
+void BlenderFrame::UpdateOverlay(std::unique_ptr<Frame> blend_frame, uint8_t alpha) {
+  assert(base_frame_->size == blend_frame->size);
+  blend_frame_ = std::move(blend_frame);
+  alpha_ = alpha;
+  // We are not certain whether the new blend_frame is internal position is aligned.
+  // Just invoke a reset to all three frame entities.
+  Reset();
+}
+
+PixelWithStatus BlenderFrame::GetPixelData() {
+  if (blend_frame_ == nullptr || alpha_ == 0) {
+    return base_frame_->GetPixelData();
+  }
+  if (index_++ >= size) return {.pixel = {}, .end_of_frame = true};
+
+  return {.pixel = RGBA8BBlendPixel({blend_frame_->GetPixelData().pixel, alpha_})
+                       .blend(base_frame_->GetPixelData().pixel),
+          .end_of_frame = false};
+}
+
+//------------------------------------
+// ColorDotFrame Implementations
+
+ColorDotFrame::ColorDotFrame(StripSizeType strip_size, const DotState& dot, RGB8BPixel bgcolor)
+    : Frame(strip_size), dot(dot), bgcolor(bgcolor) {
+  dot_pos_ = (float)(size - 1) * dot.pos_pgrs / PGRS_DENOM;
 
   float half_dot_size = ((float)dot.glow / 10 + 1) / 2;
   start_pos_ = std::max((int32_t)std::lroundf(dot_pos_ - half_dot_size), 0);
@@ -31,10 +76,10 @@ PixelWithStatus ColorDotFrame::GetPixelData() {
   if (scan_pos >= start_pos_ && scan_pos <= end_pos_) {
     PixelWithStatus result = {};
     float x = dot_pos_ - scan_pos;
-    uint16_t pmr = std::exp(-x * x / two_sigma_sqr_) * 1000;
-    result.pixel.u[0] = blend_value(bgcolor.u[0], dot.color.u[0], pmr);
-    result.pixel.u[1] = blend_value(bgcolor.u[1], dot.color.u[1], pmr);
-    result.pixel.u[2] = blend_value(bgcolor.u[2], dot.color.u[2], pmr);
+    uint16_t pgrs = std::exp(-x * x / two_sigma_sqr_) * PGRS_DENOM;
+    result.pixel.u[0] = blend_value(bgcolor.u[0], dot.color.u[0], pgrs);
+    result.pixel.u[1] = blend_value(bgcolor.u[1], dot.color.u[1], pgrs);
+    result.pixel.u[2] = blend_value(bgcolor.u[2], dot.color.u[2], pgrs);
     return result;
   }
 

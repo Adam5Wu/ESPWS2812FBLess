@@ -27,8 +27,7 @@ inline constexpr EventBits_t RENDERER_INIT_FRAME = BIT0;
 inline constexpr EventBits_t RENDERER_START_TARGET = BIT1;
 inline constexpr EventBits_t RENDERER_FINISH_TARGET = BIT2;
 inline constexpr EventBits_t RENDERER_ABORT_TARGET = BIT3;
-inline constexpr EventBits_t RENDERER_FAILED_TARGET = BIT4;
-inline constexpr EventBits_t RENDERER_NO_MORE_TARGET = BIT5;
+inline constexpr EventBits_t RENDERER_NO_MORE_TARGET = BIT4;
 
 class Renderer {
  public:
@@ -78,6 +77,7 @@ class Renderer {
   EventGroupHandle_t events_;
   std::unique_ptr<Frame> base_frame_;
 
+  BlenderFrame* blender_frame_ = nullptr;
   uint64_t base_frame_time_ = 0;
   uint64_t target_base_time_ = 0;
   uint32_t overshoot_us_ = 0;

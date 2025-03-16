@@ -19,9 +19,9 @@ namespace {
 inline constexpr char TAG[] = "Main";
 namespace LS = ::zw_esp8266::lightshow;
 
-inline constexpr LS::StripSizeType STRIP_SIZE = 600;
+inline constexpr LS::StripSizeType STRIP_SIZE = 100;
 inline constexpr uint8_t TARGET_FPS = 80;
-inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
+inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CLASSIC();
 
 inline constexpr uint16_t RENDER_TASK_STACK = 1200;
 inline constexpr UBaseType_t RENDER_TASK_PRIORITY = 5;
@@ -57,17 +57,17 @@ esp_err_t _lightshow() {
 
   // You can also add additional transitions after driver starts
   ESP_LOGI(TAG, "Adding some more LightShow targets...");
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(
-      LS::DotTarget::Create(4000, {.color = {0x08, 0x16, 0x32}, .glow = 50, .pos_pmr = 300},
-                            LS::DotState{.color = {0x00, 0x02, 0x01}, .glow = 50, .pos_pmr = 0})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(
-      LS::DotTarget::Create(5000, {.color = {0x32, 0x16, 0x08}, .glow = 30, .pos_pmr = 1000})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(
-      LS::DotTarget::Create(3000, {.color = {0x16, 0x32, 0x08}, .glow = 80, .pos_pmr = 300})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(
-      LS::DotTarget::Create(2000, {.color = {0x00, 0x24, 0x00}, .glow = 15, .pos_pmr = 100})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(
-      LS::DotTarget::Create(2000, {.color = {0x00, 0x02, 0x01}, .glow = 15, .pos_pmr = 0})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(
+      4000, {.color = {0x08, 0x16, 0x32}, .glow = 50, .pos_pgrs = LS::PGRS(0.3)},
+      LS::DotState{.color = {0x00, 0x02, 0x01}, .glow = 50, .pos_pgrs = 0})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(
+      5000, {.color = {0x32, 0x16, 0x08}, .glow = 30, .pos_pgrs = LS::PGRS(1)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(
+      3000, {.color = {0x16, 0x32, 0x08}, .glow = 80, .pos_pgrs = LS::PGRS(0.25)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(
+      2000, {.color = {0x00, 0x24, 0x00}, .glow = 15, .pos_pgrs = LS::PGRS(0.1)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::DotTarget::Create(
+      2000, {.color = {0x00, 0x02, 0x01}, .glow = 15, .pos_pgrs = LS::PGRS(0)})));
 
   // Here is how to wait for the targets
   while (true) {

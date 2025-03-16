@@ -20,7 +20,7 @@ A full frame buffer is technically not really necessary, because the processor i
 pixel data faster than the LEDs can consume.
 
 According to the WS2812 data sheet, each bit is represented as two signal levels spanning an average
-of 1.25us (microseconds). Hence a 24bit RGB pixel takes 30us to transfer. ESP8266 is capable of
+of 1.25us (microseconds). Hence a 24-bit RGB pixel takes 30us to transfer. ESP8266 is capable of
 running at 160Mhz, which means that for every pixel transferred, the CPU could run 4800 cycles.
 
 Let's assume 4000 instructions can be executed during that time. So as long as a pixel's data takes
@@ -120,7 +120,7 @@ The driver API interface is pretty simple and self-explanatory. Notable common a
    - Although the driver (with properly configured reset time, see above) will minimize visual defects
      of a frame underflow, having too many of those will still degrade the visual experience. If a
      demanding tasks is running concurrently, you can boost the rendering task's priority to avoid
-     it from being starved, and producing a more smooth transitions.
+     it from being starved, and producing more smooth transitions.
 
 #### Frame Rendering API
 
@@ -148,39 +148,48 @@ The rendering APIs reflect the aforementioned concepts:
 
 1. `Renderer::Enqueue()` allows you to compose a "light show" by adding a sequence of "targets";
 2. "Targets" are abstract concepts, which corresponds to the `Target` abstract class:
-   - All targets *must* have a common concept of `duration`;
-   - Two concrete targets are provided in the "stock" implementation:
+   - All targets *must* have a common concept of `duration` (in microseconds);
+   - Two `Target` implementations are provided in the "stock" implementation:
      - `UniformColorTarget`: Displays a single color across the entire strip;
      - `DotTarget`: Displays a colored dot at a certain position on the strip.
    - You could implement additional targets that perform fancier transitions.
 3. When the renderer runs the transition, it will:
    - Invoke `Target::RenderInit()` at the start of the transition, providing a `Frame` as the
-     initial state;
-   - Keep calling `Target::RenderFrame()`, providing the time passed since the transition started.
-     The `Target` implementation should produce a new `Frame` instance for each call, based on the
-     time passed and its internal duration.
+     initial state. The target can decide whether it will let the renderer to perform a generic
+     blending during the transition, or it will do custom transitioning.
+     - The generic blending will "fade-out" the initial frame and "fade-in" the frame rendered
+       by the current target (see next bulletin), spliced across the entire duration;
+     - Custom transition can, well, do whatever they want. :P
+   - Keep calling `Target::RenderFrame()`, providing the progression factor (12-bit precision)
+     linear to time passed from the transition start. The `Target` implementation should produce
+     a new `Frame` instance for each call.
    - Regardless of the timing in between a transition, the renderer will ensure the final frame
      of a target is rendered (even if the time passed exceeds the target duration). And that frame
      will be provided to the next target as the initial state of the transition.
-4. "Frames" are also abstract concepts, which corresponds to the `Frame` abstract class:
+1. "Frames" are also abstract concepts, which corresponds to the `Frame` abstract class:
    - A frame does not have to represent *each* pixel as a concrete memory allocation. Instead, they
      *must* implement `GetPixelData()` which enumerates the pixel data sequentially.
      - Each return consists of an `RGB8BPixel` and an `end_of_frame` indicator, which is set *after*
        the end of the frame is reached. In a sense, `RGB8BPixel` and `end_of_frame` are mutually
        exclusive. But for processing efficiency, they are presented as peer fields in `PixelWithStatus`.
      - The base implementation also provides a `index_` field and a `Reset()` implementation
-       which allows "rewinding" a frame to re-enumerate its pixel data. This mechanism not currently
-       used in the "stock" implementation; It is provisioned for implementing custom targets that can
-       transition from any arbitrary initial state (frame).
-    - Corresponding to the "stock" target instances, two concrete frames are implemented:
+       which allows "rewinding" a frame to re-enumerate its pixel data.
+    - Three `Target` implementations are provided in the "stock" implementation:
+      - `BlenderFrame`: blends two arbitrary frames into a single frame. This is used internally by
+        the renderer to provide the generic transitioning effect;
       - `UniformColorFrame`: render a uniform color across the frame;
       - `ColorDotFrame`: render a color dot on a frame;
-    - For your custom fancy targets, you should implement the corresponding frames.
+    - Generally, each custom `Target` should have a corresponding `Frame` which handles the rendering.
   - `RGB8BPixel` is a fixed pixel format for 8-bit color data in [Red, Green, Blue] order.
      - It is *agnostic* to the color ordering of the hardware, which is configurable via the `IOConfig`
        parameter of the [driver setup API](#driver-interface);
      - This allows the source code *and* the compile binary to be able to adapt to hardware expect
        different color ordering.
+  - `RGBA8BPixel` is similar to `RGB8BPixel`, but has an extra 8-bit alpha channel, which denotes the
+    "opacity" of the pixel's color. It is used to express semi-transparent pixels.
+    - `RGBA8BBlendPixel` is a special variant of `RGBA8BPixel`. It also contains "RGB+alpla" data,
+      but their values are "pre-progressed", such that redundant computation is minimized when the
+      same pixels are "blended" over multiple pixels.
 
 ### Driver Implementation Notes
 For those who are curious about what's under the hood.

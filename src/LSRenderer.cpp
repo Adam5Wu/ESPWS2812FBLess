@@ -33,7 +33,7 @@ DataOrError<std::unique_ptr<Renderer>> Renderer::Create(StripSizeType strip_size
   }
   return std::unique_ptr<Renderer>(
       new Renderer(1000000U / target_fps, std::move(target_lock), std::move(events),
-                   std::make_unique<UniformColorFrame>(strip_size, BLACK())));
+                   std::make_unique<UniformColorFrame>(strip_size, RGB8BPixel::BLACK())));
 }
 
 void Renderer::Enqueue(std::unique_ptr<Target> target, bool drop_ongoing) {
@@ -71,28 +71,31 @@ Frame* Renderer::RenderFrame() {
 
   // Wait forever for the lock, not expecting failure
   xSemaphoreTake(target_lock_, portMAX_DELAY);
-  uint64_t current_time = esp_timer_get_time();
 
+  uint64_t current_time = esp_timer_get_time();
   if (base_frame_time_ == 0) {
     base_frame_time_ = current_time;
-    result = base_frame_.get();
     xEventGroupSetBits(events_, RENDERER_INIT_FRAME);
+    result = base_frame_.get();
   } else {
     uint64_t delta_t = current_time - base_frame_time_;
     if (delta_t >= frame_interval_us_) {
       // Step by whole frame interval.
       uint32_t whole_frame_time = delta_t - delta_t % frame_interval_us_;
       base_frame_time_ += whole_frame_time;
-    next_target:
+
       if (!targets_.empty()) {
         Target& cur_target = *targets_.front();
         if (target_base_time_ == 0) {
-          if (cur_target.RenderInit(*base_frame_) != ESP_OK) {
-            ESP_LOGD(TAG, "Failed to initialize target");
-            xEventGroupClearBits(events_, ~RENDERER_FAILED_TARGET);
-            xEventGroupSetBits(events_, RENDERER_FAILED_TARGET);
-            targets_.pop();
-            goto next_target;
+          auto base_frame = cur_target.RenderInit(std::move(base_frame_));
+          if (base_frame != nullptr) {
+            ESP_LOGD(TAG, "Frame blending requested");
+            auto blender_frame = std::make_unique<BlenderFrame>(std::move(base_frame));
+            blender_frame_ = blender_frame.get();
+            base_frame_ = std::move(blender_frame);
+          } else {
+            ESP_LOGD(TAG, "No frame blending");
+            blender_frame_ = nullptr;
           }
           target_base_time_ = base_frame_time_ - frame_interval_us_;
           // If we started too late, add missed frame time to overshoot,
@@ -113,25 +116,40 @@ Frame* Renderer::RenderFrame() {
         // Note that smooth catchup only applies for overshoots between targets.
         // Any tardiness during a target transition will result in frame skipping.
         uint32_t time_passed = current_time - target_base_time_;
-        base_frame_ = cur_target.RenderFrame(time_passed);
-        result = base_frame_.get();
+        ProgressionType pgrs = progression(time_passed, cur_target.duration_us);
+        auto new_frame_ = cur_target.RenderFrame(pgrs);
 
-        if (time_passed >= cur_target.duration_us) {
-          // There maybe some overtime.
-          uint32_t overtime = time_passed - cur_target.duration_us;
-          // If it is less than one frame interval, it will be automatically corrected.
-          // So we only need to track the whole-frame overshoots.
-          overshoot_us_ += overtime - overtime % frame_interval_us_;
+        if (pgrs == PGRS_DENOM) {
+          // This is the last frame, no blending needed.
+          base_frame_ = std::move(new_frame_);
 
           xEventGroupClearBits(events_, ~RENDERER_FINISH_TARGET);
           xEventGroupSetBits(events_, RENDERER_FINISH_TARGET);
           targets_.pop();
           target_base_time_ = 0;
+
+          // There maybe some overtime.
+          uint32_t overtime = time_passed - cur_target.duration_us;
+          // If it is less than one frame interval, it will be automatically corrected.
+          // So we only need to track the whole-frame overshoots.
+          overshoot_us_ += overtime - overtime % frame_interval_us_;
+        } else {
+          // Blend frame if requested.
+          if (blender_frame_ != nullptr) {
+            blender_frame_->UpdateOverlay(std::move(new_frame_), pgrs_to_alpha(pgrs));
+          } else {
+            base_frame_ = std::move(new_frame_);
+          }
         }
+
+        // A new frame has been rendered
+        result = base_frame_.get();
       } else {
         // If there are no more targets, we don't need to track the overshoot.
         xEventGroupSetBits(events_, RENDERER_NO_MORE_TARGET);
         overshoot_us_ = 0;
+
+        // No frame was rendered
       }
     }
   }

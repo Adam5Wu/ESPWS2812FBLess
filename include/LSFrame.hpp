@@ -2,8 +2,12 @@
 #ifndef ZWESP8266_LSFRAME
 #define ZWESP8266_LSFRAME
 
+#include <vector>
+#include <memory>
+#include <utility>
 #include <string>
 
+#include "LSUtils.hpp"
 #include "LSPixel.hpp"
 
 namespace zw_esp8266::lightshow {
@@ -23,8 +27,12 @@ class Frame {
 
   virtual ~Frame() = default;
 
+  Frame(const Frame&) = delete;
+  Frame& operator=(const Frame&) = delete;
+
   enum class FrameType {
     kUniformColor,
+    kBlender,
     kColorDot,
   };
   // Get the type of the frame (works with `-fno-rtti`).
@@ -46,6 +54,34 @@ class Frame {
   StripSizeType index_ = 0;
 
   Frame(StripSizeType strip_size) : size(strip_size) {}
+};
+
+// A frame that blends multiple frames
+class BlenderFrame : public Frame {
+ public:
+  BlenderFrame(std::unique_ptr<Frame> base_frame);
+
+  FrameType Type() const override { return FrameType::kBlender; }
+  void UpdateOverlay(std::unique_ptr<Frame> blend_frame, uint8_t alpha);
+  PixelWithStatus GetPixelData() override;
+
+  void Reset() override {
+    Frame::Reset();
+    base_frame_->Reset();
+    if (blend_frame_ != nullptr) blend_frame_->Reset();
+  }
+
+#ifndef NDEBUG
+  std::string DebugString() const override {
+    return "Blender[" + base_frame_->DebugString() + "]: " + blend_frame_->DebugString() + " @" +
+           std::to_string(alpha_);
+  }
+#endif
+
+ private:
+  std::unique_ptr<Frame> base_frame_;
+  std::unique_ptr<Frame> blend_frame_;
+  uint8_t alpha_;
 };
 
 // A frame that displays a single color
@@ -78,11 +114,11 @@ struct DotState {
   // Non-zero glow will add to the dot's total "size", which is rendered
   // using a ~3.16-sigma gaussian distribution (i.e. sigma ~= size/6.32).
   uint8_t glow;
-  // Position of the object in the strip [0, 1000], where
-  // 0 is the beginning of the strip and 1000 is the end.
+  // Position of the object in the strip measured by progression (12-bit),
+  // where 0 is the beginning of the strip and 4096 is the end.
   // The dot will be rendered at the center, hance its "glows" will be
   // cut-off when it is near the ends of the strip.
-  uint16_t pos_pmr;
+  ProgressionType pos_pgrs;
 };
 
 // A frame that displays a colored dot
@@ -91,10 +127,7 @@ class ColorDotFrame : public Frame {
   const DotState dot;
   const RGB8BPixel bgcolor;
 
-  ColorDotFrame(StripSizeType strip_size, const DotState& dot_state, RGB8BPixel background)
-      : Frame(strip_size), dot(dot_state), bgcolor(background) {
-    Init();
-  }
+  ColorDotFrame(StripSizeType strip_size, const DotState& dot, RGB8BPixel bgcolor);
 
   FrameType Type() const override { return FrameType::kColorDot; }
   PixelWithStatus GetPixelData() override;
@@ -103,8 +136,7 @@ class ColorDotFrame : public Frame {
   std::string DebugString() const override {
     return "ColorDot[" + std::to_string(dot.glow / 10 + 1) + "." + std::to_string(dot.glow % 10) +
            "]: " + std::to_string(dot.color.r) + ", " + std::to_string(dot.color.g) + ", " +
-           std::to_string(dot.color.b) + " @ " + std::to_string(dot.pos_pmr / 10) + "." +
-           std::to_string(dot.pos_pmr % 10) + "%";
+           std::to_string(dot.color.b) + " @ PGRS=" + std::to_string(dot.pos_pgrs);
   }
 #endif
 
@@ -112,8 +144,6 @@ class ColorDotFrame : public Frame {
   StripSizeType start_pos_, end_pos_;
   float dot_pos_;        // The real position of the dot on the strip
   float two_sigma_sqr_;  // Deterministic component of the Gaussian PDF exponent
-
-  void Init();
 };
 
 }  // namespace zw_esp8266::lightshow
