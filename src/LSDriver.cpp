@@ -3,6 +3,7 @@
 #include "esp8266/rom_functions.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 
 #include "FreeRTOS.h"
 #include "freertos/task.h"
@@ -129,7 +130,7 @@ struct {
   // frame does each underflow and near-miss happen.
   UnderflowCounters* underflow_counters;
 #endif
-} state_ = {};
+} state_;
 
 IOStats stats_;
 
@@ -175,7 +176,7 @@ union InterruptContext {
 };
 static_assert(sizeof(InterruptContext) == sizeof(void*));
 
-void IRAM_ATTR _uart_intr_handler(void* param) {
+void IRAM_ATTR _unified_intr_handler(void* param) {
 #if ISR_DEVELOPMENT
   uint32_t isr_start_ = soc_get_ccount();
 #endif
@@ -238,7 +239,9 @@ void IRAM_ATTR _uart_intr_handler(void* param) {
       // Wake up after some idle time to check readiness again.
       // The wait linearly increases from 1x to 25x reset time.
       // The max wait time ranges from 750us to 30ms.
-      _hw_timer_rearm((uint32_t)state_.idle_state * config_.std_reset_us);
+      uint16_t idle_wait = config_.std_reset_us * state_.idle_state;
+      _hw_timer_rearm(idle_wait);
+      stats_.idle_wait += idle_wait;
       if (state_.idle_state < 15) ++state_.idle_state;
     }
   }
@@ -306,6 +309,7 @@ receive_data:
           ++state_.underflow_state;
           // Wake up when the threshold is passed, hopefully some data will arrive.
           _hw_timer_rearm(underflow_threshold);
+          stats_.busy_wait += underflow_threshold;
         } break;
 
         case 1:  // The sentinel is up, and unfortunately we have a real underflow
@@ -322,6 +326,7 @@ receive_data:
         default:  // We are in discard mode
           // Wake up after reset time and try to discard the reset of the frame.
           _hw_timer_rearm(config_.std_reset_us);
+          stats_.busy_wait += config_.std_reset_us;
       }
       // Nothing else to do, next event scheduled.
       return;
@@ -463,7 +468,7 @@ void _uart_intr_init() {
   // Attach UART ISR
   _xt_isr_mask(1 << ETS_UART_INUM);
   InterruptContext context{.caller = ISRCaller::UART};
-  _xt_isr_attach(ETS_UART_INUM, _uart_intr_handler, context.raw);
+  _xt_isr_attach(ETS_UART_INUM, _unified_intr_handler, context.raw);
   _xt_isr_unmask(1 << ETS_UART_INUM);
   portEXIT_CRITICAL();
 }
@@ -491,7 +496,7 @@ void _hw_timer_intr_init() {
   // Attach the FRC1 ISR
   _xt_isr_mask(1 << ETS_FRC_TIMER1_INUM);
   InterruptContext context{.caller = ISRCaller::HW_TIMER};
-  _xt_isr_attach(ETS_FRC_TIMER1_INUM, _uart_intr_handler, context.raw);
+  _xt_isr_attach(ETS_FRC_TIMER1_INUM, _unified_intr_handler, context.raw);
   soc_clear_int_mask(1 << ETS_FRC_TIMER1_INUM);
   TM1_EDGE_INT_ENABLE();
   _xt_isr_unmask(1 << ETS_FRC_TIMER1_INUM);
@@ -757,6 +762,8 @@ esp_err_t DriverStart(uint16_t task_stack, UBaseType_t task_priority
 #if ISR_DEVELOPMENT
   state_.underflow_counters = frame_underflow_debug;
 #endif
+  // Refresh the stats counters.
+  DriverStats();
 
   // Initialize hardware facilities
   _hw_timer_intr_init();
@@ -788,9 +795,12 @@ esp_err_t DriverStop() {
 }
 
 IOStats DriverStats() {
+  uint64_t cur_time = esp_timer_get_time();
+
   portENTER_CRITICAL();
   IOStats result = stats_;
   stats_ = {};
+  stats_.start_time = cur_time;
   portEXIT_CRITICAL();
   return result;
 }

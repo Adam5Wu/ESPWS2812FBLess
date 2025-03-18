@@ -25,7 +25,7 @@ inline constexpr uint32_t kMinBaudRate = 9600;
 inline constexpr uint32_t kMaxBaudRate = 4000000;
 
 inline constexpr uint16_t kDefaultTaskStack = 1200;
-inline constexpr UBaseType_t kDefaultTaskPriority = 10;
+inline constexpr UBaseType_t kDefaultTaskPriority = 6;
 
 struct IOConfig {
   // Baud rate for serial TX line
@@ -103,6 +103,13 @@ inline IOConfig CONFIG_WS2812_CUSTOM(uint16_t std_reset_us, uint16_t min_reset_u
 inline IOConfig CONFIG_WS2812_NEW() { return CONFIG_WS2812_CUSTOM(320, 50); }
 
 struct IOStats {
+  // Timestamp of the last "refresh" of the counters
+  uint64_t start_time;
+  // Approximate time the driver was waiting intra-frame
+  uint32_t idle_wait;
+  // Approximate time the driver was waiting inter-frame
+  uint32_t busy_wait;
+
   uint32_t frames_rendered;
   uint32_t underflow_actual;
   uint32_t underflow_near_miss;
