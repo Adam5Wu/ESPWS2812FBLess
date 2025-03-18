@@ -87,14 +87,14 @@ class BlenderFrame : public Frame {
 // A frame that displays a single color
 class UniformColorFrame : public Frame {
  public:
-  const RGB8BPixel color;
+  const RGB888 color;
 
-  UniformColorFrame(StripSizeType strip_size, RGB8BPixel frame_color)
+  UniformColorFrame(StripSizeType strip_size, RGB888 frame_color)
       : Frame(strip_size), color(frame_color) {}
 
   FrameType Type() const override { return FrameType::kUniformColor; }
   PixelWithStatus GetPixelData() override {
-    return {.pixel = color, .end_of_frame = index_++ >= size};
+    return {.pixel = color, .end_of_frame = ++index_ > size};
   }
 
 #ifndef NDEBUG
@@ -106,7 +106,7 @@ class UniformColorFrame : public Frame {
 };
 
 struct DotState {
-  RGB8BPixel color;
+  RGB888 color;
   // "Glow" of the dot in 1/10 of a pixels.
   // When glow is 0, a dot is exactly 1 pixel wide.
   // (Hence the maximum dot size will be 26.5 pixels.)
@@ -125,9 +125,9 @@ struct DotState {
 class ColorDotFrame : public Frame {
  public:
   const DotState dot;
-  const RGB8BPixel bgcolor;
+  const RGB888 bgcolor;
 
-  ColorDotFrame(StripSizeType strip_size, const DotState& dot, RGB8BPixel bgcolor);
+  ColorDotFrame(StripSizeType strip_size, const DotState& dot, RGB888 bgcolor);
 
   FrameType Type() const override { return FrameType::kColorDot; }
   PixelWithStatus GetPixelData() override;

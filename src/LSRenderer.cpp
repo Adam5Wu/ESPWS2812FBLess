@@ -54,10 +54,11 @@ void Renderer::Clear(bool drop_ongoing) {
   // Wait forever for the lock, not expecting failure
   xSemaphoreTake(target_lock_, portMAX_DELAY);
   if (!targets_.empty()) {
+    if (drop_ongoing) xEventGroupSetBits(events_, RENDERER_ABORT_TARGET);
+
     auto cur_target = std::move(targets_.front());
     while (!targets_.empty()) targets_.pop();
     if (drop_ongoing) {
-      xEventGroupSetBits(events_, RENDERER_ABORT_TARGET);
       target_base_time_ = 0;
     } else {
       targets_.push(std::move(cur_target));
@@ -122,9 +123,6 @@ Frame* Renderer::RenderFrame() {
         if (pgrs == PGRS_DENOM) {
           // This is the last frame, no blending needed.
           base_frame_ = std::move(new_frame_);
-
-          xEventGroupClearBits(events_, ~RENDERER_FINISH_TARGET);
-          xEventGroupSetBits(events_, RENDERER_FINISH_TARGET);
           targets_.pop();
           target_base_time_ = 0;
 
@@ -146,7 +144,7 @@ Frame* Renderer::RenderFrame() {
         result = base_frame_.get();
       } else {
         // If there are no more targets, we don't need to track the overshoot.
-        xEventGroupSetBits(events_, RENDERER_NO_MORE_TARGET);
+        xEventGroupSetBits(events_, RENDERER_IDLE_TARGET);
         overshoot_us_ = 0;
 
         // No frame was rendered

@@ -59,9 +59,9 @@ class Target {
 // handle transition at all! So the implementation is extremely simple.
 class UniformColorTarget : public Target {
  public:
-  const RGB8BPixel color;
+  const RGB888 color;
 
-  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, RGB8BPixel color) {
+  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, RGB888 color) {
     ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
     return std::unique_ptr<Target>(new UniformColorTarget(duration_us, color));
   }
@@ -71,11 +71,11 @@ class UniformColorTarget : public Target {
   }
 
  protected:
-  UniformColorTarget(uint32_t duration_us, RGB8BPixel color) : Target(duration_us), color(color) {}
+  UniformColorTarget(uint32_t duration_us, RGB888 color) : Target(duration_us), color(color) {}
 };
 
 // A target that displays a (moving and glowing) colored dot.
-class DotTarget : public Target {
+class ColorDotTarget : public Target {
  public:
   const DotState dot;
 
@@ -89,9 +89,9 @@ class DotTarget : public Target {
   // (Otherwise, will start with a hard-coded default dot, see `RenderInit()`.)
   const std::optional<DotState> def_dot_;
   DotState base_dot_;
-  RGB8BPixel bg_color_;
+  RGB888 bg_color_;
 
-  DotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
+  ColorDotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
       : Target(duration_us), dot(dot), def_dot_(def_dot) {}
 };
 

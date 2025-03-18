@@ -23,11 +23,10 @@ inline constexpr StripSizeType kMaxStripSize = 1200;
 inline constexpr uint8_t kDefaultFPS = 60;
 inline constexpr uint8_t kMaxFPS = 120;
 
-inline constexpr EventBits_t RENDERER_INIT_FRAME = BIT0;
-inline constexpr EventBits_t RENDERER_START_TARGET = BIT1;
-inline constexpr EventBits_t RENDERER_FINISH_TARGET = BIT2;
-inline constexpr EventBits_t RENDERER_ABORT_TARGET = BIT3;
-inline constexpr EventBits_t RENDERER_NO_MORE_TARGET = BIT4;
+inline constexpr EventBits_t RENDERER_INIT_FRAME = BIT0;    // Once for the lifetime of a renderer
+inline constexpr EventBits_t RENDERER_START_TARGET = BIT1;  // Also the "previous target done" event
+inline constexpr EventBits_t RENDERER_ABORT_TARGET = BIT2;
+inline constexpr EventBits_t RENDERER_IDLE_TARGET = BIT3;
 
 class Renderer {
  public:
@@ -62,6 +61,7 @@ class Renderer {
   Frame* RenderFrame();
 
   // Wait for any ephemeral event to occur.
+  // The events are triggered right before the processing happen
   EventBits_t WaitFor(EventBits_t events, TickType_t timeout) {
     return xEventGroupWaitBits(events_, events, true, false, timeout);
   }
