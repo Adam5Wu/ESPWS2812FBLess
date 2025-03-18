@@ -1,5 +1,7 @@
 #include "LSTarget.hpp"
 
+#include <memory>
+
 #include "esp_log.h"
 
 #include "LSUtils.hpp"
@@ -11,25 +13,15 @@ namespace {
 
 inline constexpr char TAG[] = "LSTarget";
 
-std::unique_ptr<Frame> RenderUniformColorProgression(StripSizeType frame_size,
-                                                     RGB8BPixel from_color, RGB8BPixel to_color,
-                                                     uint16_t progression) {
-  RGB8BPixel cur_color;
-  cur_color.u[0] = blend_value(from_color.u[0], to_color.u[0], progression);
-  cur_color.u[1] = blend_value(from_color.u[1], to_color.u[1], progression);
-  cur_color.u[2] = blend_value(from_color.u[2], to_color.u[2], progression);
-  return std::make_unique<UniformColorFrame>(frame_size, cur_color);
-}
-
-std::unique_ptr<Frame> RenderMovingDotProgression(StripSizeType strip_size, RGB8BPixel bg_color,
+std::unique_ptr<Frame> RenderMovingDotProgression(StripSizeType strip_size, RGB888 bg_color,
                                                   DotState from, DotState to,
-                                                  uint16_t progression) {
+                                                  ProgressionType pgrs) {
   DotState cur;
-  cur.color.u[0] = blend_value(from.color.u[0], to.color.u[0], progression);
-  cur.color.u[1] = blend_value(from.color.u[1], to.color.u[1], progression);
-  cur.color.u[2] = blend_value(from.color.u[2], to.color.u[2], progression);
-  cur.glow = blend_value(from.glow, to.glow, progression);
-  cur.pos_pmr = blend_value(from.pos_pmr, to.pos_pmr, progression);
+  cur.color.r = blend_value(from.color.r, to.color.r, pgrs);
+  cur.color.g = blend_value(from.color.g, to.color.g, pgrs);
+  cur.color.b = blend_value(from.color.b, to.color.b, pgrs);
+  cur.glow = blend_value(from.glow, to.glow, pgrs);
+  cur.pos_pgrs = blend_value(from.pos_pgrs, to.pos_pgrs, pgrs);
   return std::make_unique<ColorDotFrame>(strip_size, cur, bg_color);
 }
 
@@ -43,67 +35,44 @@ DataOrError<uint32_t> Target::PrepareDuration(uint32_t duration_ms) {
   return duration_ms * 1000;
 }
 
-DataOrError<std::unique_ptr<Target>> UniformColorTarget::Create(uint32_t duration_ms,
-                                                                RGB8BPixel color) {
+//-------------------------
+// ColorDotTarget
+
+DataOrError<std::unique_ptr<Target>> ColorDotTarget::Create(uint32_t duration_ms, DotState dot,
+                                                            std::optional<DotState> def_dot) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
-  return std::unique_ptr<Target>(new UniformColorTarget(duration_us, color));
-}
-
-esp_err_t UniformColorTarget::RenderInit(const Frame& base_frame) {
-  frame_size_ = base_frame.size;
-  switch (base_frame.Type()) {
-    case Frame::FrameType::kUniformColor:
-      base_color_ = static_cast<const UniformColorFrame&>(base_frame).color;
-      return ESP_OK;
-
-    default:
-      ESP_LOGW(TAG, "Unsupported base frame type");
-      base_color_ = BLACK();
-      return ESP_ERR_NOT_SUPPORTED;
-  }
-}
-
-std::unique_ptr<Frame> UniformColorTarget::RenderFrame(uint32_t time_passed_us) {
-  return RenderUniformColorProgression(frame_size_, base_color_, color_,
-                                       progression_pmr(time_passed_us, duration_us));
-}
-
-DataOrError<std::unique_ptr<Target>> DotTarget::Create(uint32_t duration_ms, DotState dot,
-                                                       std::optional<DotState> def_dot) {
-  ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
-  if (dot.pos_pmr > 1000) {
+  if (dot.pos_pgrs > PGRS_DENOM) {
     ESP_LOGW(TAG, "Invalid dot position");
     return ESP_ERR_INVALID_ARG;
   }
-  return std::unique_ptr<Target>(new DotTarget(duration_us, dot, def_dot));
+  return std::unique_ptr<Target>(new ColorDotTarget(duration_us, dot, def_dot));
 }
 
-esp_err_t DotTarget::RenderInit(const Frame& base_frame) {
-  frame_size_ = base_frame.size;
-  switch (base_frame.Type()) {
+std::unique_ptr<Frame> ColorDotTarget::RenderInit(std::unique_ptr<Frame> base_frame) {
+  frame_size_ = base_frame->size;
+  switch (base_frame->Type()) {
     case Frame::FrameType::kUniformColor:
-      bg_color_ = static_cast<const UniformColorFrame&>(base_frame).color;
-      base_dot_ = def_dot_.value_or(DotState{.color = bg_color_, .glow = 0, .pos_pmr = 0});
-      return ESP_OK;
+      bg_color_ = static_cast<const UniformColorFrame&>(*base_frame).color;
+      base_dot_ = def_dot_.value_or(DotState{.color = bg_color_, .glow = 0, .pos_pgrs = 0});
+      break;
 
     case Frame::FrameType::kColorDot: {
-      auto base_dot_frame = static_cast<const ColorDotFrame&>(base_frame);
+      auto& base_dot_frame = static_cast<const ColorDotFrame&>(*base_frame);
       bg_color_ = base_dot_frame.bgcolor;
       base_dot_ = base_dot_frame.dot;
-      return ESP_OK;
+      break;
     }
 
     default:
       ESP_LOGW(TAG, "Unsupported base frame type");
-      bg_color_ = BLACK();
-      base_dot_ = def_dot_.value_or(DotState{.color = bg_color_, .glow = 0, .pos_pmr = 0});;
-      return ESP_ERR_NOT_SUPPORTED;
+      bg_color_ = RGB8BPixel::BLACK();
+      base_dot_ = def_dot_.value_or(DotState{.color = bg_color_, .glow = 0, .pos_pgrs = 0});
   }
+  return nullptr;
 }
 
-std::unique_ptr<Frame> DotTarget::RenderFrame(uint32_t time_passed_us) {
-  return RenderMovingDotProgression(frame_size_, bg_color_, base_dot_, dot_,
-                                    progression_pmr(time_passed_us, duration_us));
+std::unique_ptr<Frame> ColorDotTarget::RenderFrame(ProgressionType pgrs) {
+  return RenderMovingDotProgression(frame_size_, bg_color_, base_dot_, dot, pgrs);
 }
 
 }  // namespace zw_esp8266::lightshow

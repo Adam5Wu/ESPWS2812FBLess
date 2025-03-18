@@ -39,16 +39,39 @@ class DataOrError {
   if (!UNIQUE_VAR(data_or_error)) return UNIQUE_VAR(data_or_error).error(); \
   val = std::move(*UNIQUE_VAR(data_or_error))
 
-// Computes the permillage value using integer arithmetics.
-inline uint16_t progression_pmr(uint32_t cur, uint32_t total) {
-  assert((cur <= 0xFFFFFFFF / 10) && (total <= 0xFFFFFFFF / 10));
-  return std::min((cur * 10) / (total / 100), 1000U);
+// Computes the "progression" of `cur` from `total` with 12-bit precision.
+using ProgressionType = uint16_t;
+
+inline constexpr uint8_t PGRS_PRECISION = 12;
+inline constexpr uint8_t PGRS_DIVNUM_FACTOR = 6;
+inline constexpr uint32_t PGRS_MAX_DIVNUM = UINT32_MAX >> (PGRS_DIVNUM_FACTOR);
+inline constexpr uint8_t PGRS_DENUM_FACTOR = PGRS_PRECISION - PGRS_DIVNUM_FACTOR;
+inline constexpr uint32_t PGRS_MIN_DIVISOR = 1U << (PGRS_DENUM_FACTOR);
+inline constexpr uint32_t PGRS_DENOM = 1U << PGRS_PRECISION;
+
+constexpr ProgressionType PGRS(float frac) { return PGRS_DENOM * frac; }
+
+inline ProgressionType progression(uint32_t cur, uint32_t total) {
+  assert(cur <= PGRS_MAX_DIVNUM);
+  return (total < PGRS_MIN_DIVISOR)
+             ? PGRS_DENOM
+             : std::min((cur << PGRS_DIVNUM_FACTOR) / (total >> PGRS_DENUM_FACTOR), PGRS_DENOM);
 }
 
-// Blend two values using a permillage value.
-inline uint32_t blend_value(uint32_t from, uint32_t to, uint16_t pmr) {
-  assert((from <= 0xFFFFFFFF / 1000) && (to <= 0xFFFFFFFF / 1000) && (pmr <= 1000));
-  return from + (int32_t)(to - from) * pmr / 1000;
+// Convert the progression value to 8-bit alpha [0,255].
+inline constexpr uint8_t ALPHA_PRECISION = 8;
+
+inline uint8_t pgrs_to_alpha(ProgressionType pgrs) {
+  assert(pgrs <= PGRS_DENOM);
+  return pgrs < PGRS_DENOM ? pgrs >> (PGRS_PRECISION - ALPHA_PRECISION) : UINT8_MAX;
+}
+
+// Blend two values using the above approx-permillage value.
+inline constexpr uint32_t BLEND_MAX_VAL = UINT32_MAX >> PGRS_PRECISION;
+
+inline uint32_t blend_value(uint32_t from, uint32_t to, ProgressionType pgrs) {
+  assert((from <= BLEND_MAX_VAL) && (to <= BLEND_MAX_VAL) && (pgrs <= PGRS_DENOM));
+  return from + (((int32_t)(to - from) * pgrs) >> PGRS_PRECISION);
 }
 
 }  // namespace zw_esp8266::lightshow

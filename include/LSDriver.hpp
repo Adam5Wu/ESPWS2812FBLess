@@ -4,26 +4,44 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include "esp_err.h"
 
 #include "LSRenderer.hpp"
+
+// Turn on extra debugging features.
+#define ISR_DEVELOPMENT 0
 
 namespace zw_esp8266::lightshow {
 
 inline constexpr uint16_t kMinJitterBudget = 200;
 inline constexpr uint16_t kMaxJitterBudget = 20000;
 
-inline constexpr uint16_t kMinResetTime = 20;
+inline constexpr uint16_t kMinResetTime = 30;  // The interrupt resolution limit
 inline constexpr uint16_t kMaxResetTime = 2000;
 
+inline constexpr uint32_t kMinBaudRate = 9600;
+inline constexpr uint32_t kMaxBaudRate = 4000000;
+
 inline constexpr uint16_t kDefaultTaskStack = 1200;
-inline constexpr UBaseType_t kDefaultTaskPriority = 5;
+inline constexpr UBaseType_t kDefaultTaskPriority = 10;
 
 struct IOConfig {
   // Baud rate for serial TX line
   // Refer to the device datasheet to determine appropriate value.
   uint32_t baud_rate;
+
+  // The standard reset time to signal a reset (i.e. starting a new frame).
+  // Refer to the device datasheet for appropriate value.
+  uint16_t std_reset_us;
+
+  // The lower bound reset time of the strip.
+  // Usually lower than the standard reset time, and may vary across
+  // different device models or even manufacturing batches.
+  // A proper value could significantly reduce visual defects (flickering)
+  // in the event of a frame underflow.
+  uint16_t min_reset_us;
 
   // The maximum length of scheduling jitter to accommodate.
   //
@@ -37,10 +55,9 @@ struct IOConfig {
   // The large the budget, the larger buffer will be allocated, and
   // the less probability a frame underflow will happen.
   uint16_t jitter_budget_us;
-
-  // The number of us to stay quiet to signal a frame has ended.
-  // Refer to the device datasheet to determine appropriate value.
-  uint16_t reset_us;
+  
+  // Pixel format
+  RGB8BLayout pixel_format;
 
   // Invert serial line logic
   // Set according to how the device data line is driven
@@ -54,10 +71,12 @@ struct IOConfig {
   uint8_t data_map[4];
 };
 
-static const IOConfig CONFIG_WS2812_TEMPLATE = {
+inline constexpr IOConfig CONFIG_WS2812_TEMPLATE = {
     .baud_rate = 3200000,      // 1.25ns per WS2812 bit (4bits)
-    .jitter_budget_us = 1200,  // Absorbs 1.2ms scheduling jitter
-    .reset_us = 40,            // "Classic" WS2811 and WS2812b reset time
+    .std_reset_us = 50,        // "Classic" WS2811 and WS2812b reset time
+    .min_reset_us = 40,
+    .jitter_budget_us = 1200,  // Absorbs ~1.2ms scheduling jitter
+    .pixel_format = RGB8BDefaultLayout,
     .invert_logic = true,
     .data_map = {
         // UART sends less significant bit (LSB) first
@@ -71,17 +90,34 @@ static const IOConfig CONFIG_WS2812_TEMPLATE = {
 };
 
 inline IOConfig CONFIG_WS2812_CLASSIC() { return CONFIG_WS2812_TEMPLATE; }
-inline IOConfig CONFIG_WS2812_NEW() {
+
+inline IOConfig CONFIG_WS2812_CUSTOM(uint16_t std_reset_us, uint16_t min_reset_us = 0,
+                                     std::optional<uint16_t> jitter_budget_us = std::nullopt) {
   IOConfig config = CONFIG_WS2812_TEMPLATE;
-  config.reset_us = 260;  // The new revision has a more leinent reset time
+  config.std_reset_us = std_reset_us;
+  config.min_reset_us = min_reset_us;
+  if (jitter_budget_us) config.jitter_budget_us = *jitter_budget_us;
   return config;
 }
+// The newer WS2812 revision has a 280us reset time
+inline IOConfig CONFIG_WS2812_NEW() { return CONFIG_WS2812_CUSTOM(280, 50); }
 
 struct IOStats {
   uint32_t frames_rendered;
   uint32_t underflow_actual;
   uint32_t underflow_near_miss;
+#if ISR_DEVELOPMENT
+  uint16_t isr_process_latency_high;
+  uint16_t isr_process_latency_low;
+#endif
 };
+
+#if ISR_DEVELOPMENT
+struct __attribute__((packed)) UnderflowCounters {
+  uint16_t actual;
+  uint16_t near_miss;
+};
+#endif
 
 // Perform the basic set up before starting the driver
 // Pass `renderer=nullptr` to release resources of a previous set up.
@@ -107,7 +143,12 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer);
 //   - So if you have a small strip and wants to render transitions at higher
 //     than 100fps, you will have to increase the RTOS tick frequency.
 esp_err_t DriverStart(uint16_t task_stack = kDefaultTaskStack,
-                      UBaseType_t task_priority = kDefaultTaskPriority);
+                      UBaseType_t task_priority = kDefaultTaskPriority
+#if ISR_DEVELOPMENT
+                      ,
+                      UnderflowCounters* frame_underflow_debug = nullptr
+#endif
+);
 
 // Stops the driver
 // Does not release resources, so `DriverStart()` can be called again.

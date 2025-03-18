@@ -20,8 +20,8 @@ A full frame buffer is technically not really necessary, because the processor i
 pixel data faster than the LEDs can consume.
 
 According to the WS2812 data sheet, each bit is represented as two signal levels spanning an average
-of 1.25us (microseconds). Hence a 24bit RGB pixel takes 30us to transfer. ESP8266 is capable of
-running at 160Mhz, which means that for every pixel transferred, the CPU could run 4800 cycles.
+of 1.25$\mu$s (microseconds). Hence a 24-bit RGB pixel takes 30$\mu$s to transfer. ESP8266 is capable
+of running at 160Mhz, which means that for every pixel transferred, the CPU could run 4800 cycles.
 
 Let's assume 4000 instructions can be executed during that time. So as long as a pixel's data takes
 less than 4000 instructions to generate, we could *theoretically* produce the pixel data on-the-fly.
@@ -33,10 +33,10 @@ concurrently, so not all cycles are available for pixel data generation.
 
 And to make matters worse, sometimes a high-priority task (such as WiFi tasks, or other interrupts)
 can occupy the CPU for a prolonged period of time without releasing, thereby "starving" the pixel
-generation task. Adding salt to the injury, WS2812 operates with very strict timing: a 50us quiescence
-is interpreted as a "reset". So if the pixel generation task is preempted for more than 50us, the
-LEDs will interpret subsequently produced pixels as "start from the beginning" -- and that is the
-common cause of "flickering": pixels displayed at wrong locations.
+generation task. Adding salt to the injury, WS2812 operates with very strict timing: a 50$\mu$s
+quiescence is interpreted as a "reset". So if the pixel generation task is preempted for more than
+50$\mu$s, the LEDs will interpret subsequently produced pixels as "start from the beginning" --
+and that is the common cause of "flickering": pixels displayed at wrong locations.
 
 As a result, even if each pixel only requires a few hundreds, or even less instructions to produce,
 without any buffer the rendering tends to produce a lot of random defects, which is not acceptable.
@@ -47,11 +47,11 @@ So, some amount of buffering is still needed -- just not as excessive as bufferi
 preemption interval we anticipate.
 
 For example, it is reported that on ESP8266 the worst scheduling jitter is produced by the WiFi
-sub-system, with magnitudes up to 800us. Therefore, we can use a 1200us budget to comfortably absorb
-scheduling jitters. And since each WS2812 pixel takes 30us to transfer, the scheduling jitter budget
-translates to a buffer of 40 pixels. So, if the strip is under 40 pixels, we buffer the entire
-frame; but for strips more than 40 pixels, regardless of 50, 300, or 1000 pixels, we always only
-need a *40 pixel buffer*!
+sub-system, with magnitudes up to 800us. Therefore, we can use a 1200$\mu$s budget to comfortably
+absorb scheduling jitters. And since each WS2812 pixel takes 30$\mu$s to transfer, the scheduling
+jitter budget translates to a buffer of 40 pixels. So, if the strip is under 40 pixels, we buffer
+the entire frame; but for strips more than 40 pixels, regardless of 50, 300, or 1000 pixels, we
+always only need a *40 pixel buffer*!
 
 ### RGB Pixel vs. UART "pixel"
 WS2812 perceives pixel data bits as transitions between two levels over time. As a result data we
@@ -93,24 +93,43 @@ The APIs are broken down into two parts: the driver, and the frame rendering.
 
 #### Driver Interface
 The driver API interface is pretty simple and self-explanatory. Notable common adjustment levers are:
-1. `IOConfig::reset_us`: You want to set this value as close to your LED's **lower bound** as possible.
-   
-   You are recommended to *start* with referring to your LED's component datasheet, but do *NOT* solely
-   rely on that. Instead, test it out by running it with the driver. For example:
-   * Say if you have a 200 pixel strip, create a `Renderer` with **less** pixels, e.g. 100 or 50;
-   * Run a 10~30 sec color transition.
-   * First set the reset time to the value from the datasheet -- if it is any good, you should see your
-     configured number of pixels light up as you defined.
-   * Then, reduce the reset time, you can do it gradually or use some algorithms (e.g. binary search),
-     and run the transition again. If you start to see *more* pixels light up than what you configured,
-     that is an indication that the reset time is *too low*.
-   * Keep searching until you find the smallest number that does not light up excessive pixels.
+1. `IOConfig::pixel_format`: You can select one of six permutations of RGB color ordering. Please refer
+   to your LED's component datasheet;
+2. `IOConfig::std_reset_us` and `IOConfig::min_reset_us`: You should set `std_reset_us` according to
+   your LED's component datasheet; however, for `min_reset_us`, you will need to determine a good value
+   by test running with the driver.
 
-   The reason finding a good reset time is important is that it allows the driver to accurately detect
-   [frame underflow](#frame-underflow-handling) in case it happens, and apply proper handling to
-   minimize visual defects.
+   You want to set this value as close to your LED's **lower bound** as possible, because that allows
+   the driver to accurately detect [frame underflow](#frame-underflow-handling) in case it happens, and
+   apply proper handling to minimize visual defects.
 
-2. `DriverStart()` parameters, `task_stack` and `task_priority`:
+   Note: *Only* perform the timing test using the [custom ring buffer](#ring-buffer). Do NOT use the
+   IDF ring buffer for this task. Due to its lower efficiency, it cannot produce good-looking visuals
+   even if the timings are correct, which will make the timing adjustment exceedingly difficult.
+
+   * Say if you have a 200 pixel strip, configure the renderer with *less* pixels, e.g. 100 or 150, with
+     a high target FPS, e.g. 100.
+   * Set up the driver using a custom `IOConfig` with a *very small* jitter buffer, e.g.
+     `CONFIG_WS2812_CUSTOM(<std_reset_us>, <min_reset_us>, 270)`.
+   * Run 10~30 sec "color dot" transitions, this would create plenty of opportunities for potential frame
+     underflow near-misses and actual misses.
+   * Start by setting both `std_reset_us` and `min_reset_us` to the value from the datasheet:
+     - Unless you are very lucky and those numbers are exactly right, you should lots of visual defects.
+     - If you see *more* pixels than you configured lit up, that means `std_reset_us` is too **low**;
+     - If you see flickers, that means `min_reset_us` is too **high**.
+     - You may see both happening at the same time.
+   * Resolve the issues one-by-one:
+     - First, find a better `std_reset_us`: gradually increase its value until *only* your configured
+       number of pixels light up. (You will probably need to power-off the strip in between each trial.)
+       - Only proceed to the next step if your `std_reset_us` is good.
+     - Then find a better `std_reset_us`: gradually reduce its value. When you are close to the good
+       value, you should see the flickering begin to reduce, and eventually stops completely when you
+       get to a good value.
+       - Note that if you make big reductions, and the value is *too low*, the flickering disappears
+         completely but another visual defect emerges: the moving dot "stutters" (i.e. pause-resume-pause).
+         Increase the value to reduce the stutter, until you see a smooth transition.
+
+5. `DriverStart()` parameters, `task_stack` and `task_priority`:
    - Pixel data are [generated dynamically](#frame-rendering-api), and this process is driven by a
      dedicated task, whose stack space is consumed during this process. If you have a complex
      transition you may run out of the default allocated stack space. When that happens you can
@@ -118,7 +137,7 @@ The driver API interface is pretty simple and self-explanatory. Notable common a
    - Although the driver (with properly configured reset time, see above) will minimize visual defects
      of a frame underflow, having too many of those will still degrade the visual experience. If a
      demanding tasks is running concurrently, you can boost the rendering task's priority to avoid
-     it from being starved, and producing a more smooth transitions.
+     it from being starved, and producing more smooth transitions.
 
 #### Frame Rendering API
 
@@ -146,41 +165,48 @@ The rendering APIs reflect the aforementioned concepts:
 
 1. `Renderer::Enqueue()` allows you to compose a "light show" by adding a sequence of "targets";
 2. "Targets" are abstract concepts, which corresponds to the `Target` abstract class:
-   - All targets *must* have a common concept of `duration`;
-   - Two concrete targets are provided in the "stock" implementation:
+   - All targets *must* have a common concept of `duration` (in $\mu$s);
+   - Two `Target` implementations are provided in the "stock" implementation:
      - `UniformColorTarget`: Displays a single color across the entire strip;
-     - `DotTarget`: Displays a colored dot at a certain position on the strip.
+     - `ColorDotTarget`: Displays a color dot at a certain position on the strip.
    - You could implement additional targets that perform fancier transitions.
 3. When the renderer runs the transition, it will:
    - Invoke `Target::RenderInit()` at the start of the transition, providing a `Frame` as the
-     initial state;
-   - Keep calling `Target::RenderFrame()`, providing the time passed since the transition started.
-     The `Target` implementation should produce a new `Frame` instance for each call, based on the
-     time passed and its internal duration.
+     initial state. The target can decide whether it will let the renderer to perform a generic
+     blending during the transition, or it will do custom transitioning.
+     - The generic blending will "fade-out" the initial frame and "fade-in" the frame rendered
+       by the current target (see next bulletin), spliced across the entire duration;
+     - Custom transition can, well, do whatever they want. :P
+   - Keep calling `Target::RenderFrame()`, providing the progression factor (12-bit precision)
+     linear to time passed from the transition start. The `Target` implementation should produce
+     a new `Frame` instance for each call.
    - Regardless of the timing in between a transition, the renderer will ensure the final frame
      of a target is rendered (even if the time passed exceeds the target duration). And that frame
      will be provided to the next target as the initial state of the transition.
-4. "Frames" are also abstract concepts, which corresponds to the `Frame` abstract class:
+1. "Frames" are also abstract concepts, which corresponds to the `Frame` abstract class:
    - A frame does not have to represent *each* pixel as a concrete memory allocation. Instead, they
      *must* implement `GetPixelData()` which enumerates the pixel data sequentially.
      - Each return consists of an `RGB8BPixel` and an `end_of_frame` indicator, which is set *after*
        the end of the frame is reached. In a sense, `RGB8BPixel` and `end_of_frame` are mutually
        exclusive. But for processing efficiency, they are presented as peer fields in `PixelWithStatus`.
      - The base implementation also provides a `index_` field and a `Reset()` implementation
-       which allows "rewinding" a frame to re-enumerate its pixel data. This mechanism not currently
-       used in the "stock" implementation; It is provisioned for implementing custom targets that can
-       transition from any arbitrary initial state (frame).
-    - Corresponding to the "stock" target instances, two concrete frames are implemented:
+       which allows "rewinding" a frame to re-enumerate its pixel data.
+    - Three `Target` implementations are provided in the "stock" implementation:
+      - `BlenderFrame`: blends two arbitrary frames into a single frame. This is used internally by
+        the renderer to provide the generic transitioning effect;
       - `UniformColorFrame`: render a uniform color across the frame;
       - `ColorDotFrame`: render a color dot on a frame;
-    - For your custom fancy targets, you should implement the corresponding frames.
-  - `RGB8BPixel` is an umbrella pixel format for all pixels color data with Red, Green and Blue
-    component each in 8-bits. This is to account for the different ordering of the three components.
-    - Current implementation does not perform dynamic conversion. Instead the color component order is
-      statically defined, e.g via `using RGB8BPixel = GRB888;`. This allows color constants in source
-      code stay agnostic to the LED's color component ordering. (But a rebuild is needed each time
-      you change to a different ordering).
-    - Dynamic color component order conversion may be implemented in the future.
+    - Generally, each custom `Target` should have a corresponding `Frame` which handles the rendering.
+  - `RGB8BPixel` is a fixed pixel format for 8-bit color data in [Red, Green, Blue] order.
+     - It is *agnostic* to the color ordering of the hardware, which is configurable via the `IOConfig`
+       parameter of the [driver setup API](#driver-interface);
+     - This allows the source code *and* the compile binary to be able to adapt to hardware expect
+       different color ordering.
+  - `RGBA8BPixel` is similar to `RGB8BPixel`, but has an extra 8-bit alpha channel, which denotes the
+    "opacity" of the pixel's color. It is used to express semi-transparent pixels.
+    - `RGBA8BBlendPixel` is a special variant of `RGBA8BPixel`. It also contains "RGB+alpla" data,
+      but their values are "pre-progressed", such that redundant computation is minimized when the
+      same pixels are "blended" over multiple pixels.
 
 ### Driver Implementation Notes
 For those who are curious about what's under the hood.
@@ -214,7 +240,7 @@ FUState2{{"Frame underflow state"}}
 style FUState2 fill:#448
 FUSentinel>"Frame underflow state: sentinel"]
 style FUSentinel fill:#448
-TimeUnderflow[/"wakeup time = time to deplete FIFO + reset time - 10us"/]
+TimeUnderflow[/"wakeup time = time to deplete FIFO + min reset time - ISR overhead"/]
 
 FUActual>"Frame underflow state: underflow"]
 style FUActual fill:#448
@@ -228,12 +254,12 @@ style FUReset2 fill:#448
 FTIdle1>"Frame transmission state: wait-next"]
 style FTIdle1 fill:#475
 
-FrameReset[/"wakeup time = reset time"/]
+FrameReset[/"wakeup time = std reset time"/]
 FTIdle2>"Frame transmission state: wait-next"]
 style FTIdle2 fill:#475
 
 RBufTell["Sufficient data in ring buffer?"]
-FrameWait[/"wakeup time = N * reset time (2 <= N <= 25)"/]
+FrameWait[/"wakeup time = N * std reset time (2 <= N <= 25)"/]
 FTNewFrame>"Frame transmission state: frame-in-progress"]
 style FTNewFrame fill:#475
 
@@ -288,23 +314,23 @@ If you find the chart too confusing, there are 6 distinct operational workflows:
   **This is the main workflow, shown in the above chart with bold arrow connectors.**
 - **Frame interruption**: triggered by UART1 TX FIFO empty event, when the frame has not been
   completely received but the ring buffer has no data; Will set HW timer a timeout of
-  `time left to deplete the TX FIFO` + `reset time` - *10ns*. The idea is that, if there is still
-  no data from the ring buffer when the timer expires, we will treat it as a real frame underflow
-  and [drop the rest of the frame's data](#frame-underflow-handling).
+  `time left to deplete the TX FIFO` + `min reset time` - `ISR overhead`. The idea is that, if
+  there is still no data from the ring buffer when the timer expires, we will treat it as a real
+  frame underflow and [drop the rest of the frame's data](#frame-underflow-handling).
   **This workflow is shown in the above chart with dotted arrow connectors.**
 - **Frame completion**: triggered by UART1 TX FIFO empty event, when a frame has been completely
   received; Will set an internal flag to signal end-of-frame, an set HW timer a timeout of
   `time left to deplete the TX FIFO`.
 - **Frame reset**: triggered by HW timer, when the "end-of-frame" flag is set. Will re-arm the
-  timer with a timeout of `reset time`, and set the "wait-next" flag.
+  timer with a timeout of `std reset time`, and set the "wait-next" flag.
 - **Frame waiting**: triggered by HW timer, when the "wait-next" flag is set. Will check if
   the ring buffer has sufficient data for the next frame. If so, *directly* enters the
   **frame transmission** workflow; otherwise, re-arm the timer with an increasing multiple of
-  `reset time` (max 25 times `reset time`).
+  `std reset time` (max 25 times `std reset time`).
 - **Frame drop**: triggered by HW timer. Try to receive the rest of the frame's pixel data from
   the ring buffer; If the complete frame has been received, sets "wait-next" flag and *directly*
   enters **frame waiting** workflow; Otherwise, regardless of how much data received, re-arm the
-  timer with a timeout of `reset time`.
+  timer with a timeout of `std reset time`.
   **This workflow is shown in the above chart also with dotted arrow connectors.**
 
 #### Ring buffer
@@ -324,16 +350,19 @@ At 160MHz with very light concurrent loads and generous jitter buffers (e.g. >10
 very significant difference between the two implementations. However, at 80Mhz and pushing the buffer
 size to the extreme, the custom ring buffer shows better performance and stability.
 
-Here is a data point from my own experiment:
-* Configuring the chip to run at 80Mhz, uses only a **9 pixel** ring buffer (~270us jitter);
-* Rendering an **800 pixel** strip (the longest I have! :P), targeting 40fps (the maximum physically
-  possible frame rate is around 41fps);
-* Using the custom ring buffer resulted in **exactly 40fps**, with zero frame underflow and **zero**
-  near-misses (aka. "frame interruption mode"), transition is visually smooth without defects;
-* Using the IDF ring buffer resulted in **only about 35fps**, while also zero frame underflow, but
-  the driver reports **hundreds** of near-misses per second. Very occasionally, I observed a tiny
-  glitch during the transition. (Since no frame underflow reported, maybe my reset time should be
-  a bit lower -- it is better to drop a frame or two than to glitch!)
+##### Pixel block size
+By default the custom ring buffer uses 9 pixel blocks - each block will fit tightly into the UART
+TX FIFO during frame transmission. This is the most efficient configuration.
+
+However, because a pixel block will only be delivered to the ISR after *all* pixels are produced, if
+the pixel generation computation is very expensive, producing all 9 pixels may exceed the LED's reset
+time and result in frame underflow.
+
+To mitigate that you can configure a smaller pixel block size, thereby breaking the computation into
+smaller chunks, and reducing the likelihood for underflow.
+
+However, smaller pixel block size will add some processing overhead, reducing the overall efficiency
+of frame rendering and transmission.
 
 #### FreeRTOS ticks and FPS
 Currently the rendering task will sleep one tick when the renderer returned no frame in the middle
