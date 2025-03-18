@@ -26,14 +26,14 @@ namespace {
 inline constexpr char TAG[] = "Main";
 namespace LS = ::zw_esp8266::lightshow;
 
-inline constexpr LS::StripSizeType STRIP_SIZE = 800;
+inline constexpr LS::StripSizeType STRIP_SIZE = 108;
 inline constexpr uint8_t TARGET_FPS = 100;
 // inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CLASSIC();
 inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
 // inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CUSTOM(280, 50, 270);
 
 inline constexpr uint16_t RENDER_TASK_STACK = 1200;
-inline constexpr UBaseType_t RENDER_TASK_PRIORITY = 5;
+inline constexpr UBaseType_t RENDER_TASK_PRIORITY = 10;
 
 esp_err_t _lightshow() {
   ESP_LOGI(TAG, "Creating LightShow renderer...");

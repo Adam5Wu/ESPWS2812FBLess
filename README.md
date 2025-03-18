@@ -107,8 +107,9 @@ The driver API interface is pretty simple and self-explanatory. Notable common a
    IDF ring buffer for this task. Due to its lower efficiency, it cannot produce good-looking visuals
    even if the timings are correct, which will make the timing adjustment exceedingly difficult.
 
-   * Say if you have a 200 pixel strip, configure the renderer with *less* pixels, e.g. 100 or 150, with
-     a high target FPS, e.g. 100.
+   * Say if you have a 200 pixel strip, configure the renderer with *less* pixels, e.g. 72 or 108,
+     and a high target FPS, e.g. 100.
+     - Using a multiple of 9 pixels can help you better determine a good `std_reset_us` value.
    * Set up the driver using a custom `IOConfig` with a *very small* jitter buffer, e.g.
      `CONFIG_WS2812_CUSTOM(<std_reset_us>, <min_reset_us>, 270)`.
    * Run 10~30 sec "color dot" transitions, this would create plenty of opportunities for potential frame

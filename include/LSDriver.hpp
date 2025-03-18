@@ -99,8 +99,8 @@ inline IOConfig CONFIG_WS2812_CUSTOM(uint16_t std_reset_us, uint16_t min_reset_u
   if (jitter_budget_us) config.jitter_budget_us = *jitter_budget_us;
   return config;
 }
-// The newer WS2812 revision has a 280us reset time
-inline IOConfig CONFIG_WS2812_NEW() { return CONFIG_WS2812_CUSTOM(280, 50); }
+// The newer WS2812 revision has a >300us reset time
+inline IOConfig CONFIG_WS2812_NEW() { return CONFIG_WS2812_CUSTOM(320, 50); }
 
 struct IOStats {
   uint32_t frames_rendered;
