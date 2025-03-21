@@ -27,11 +27,11 @@ namespace {
 inline constexpr char TAG[] = "Main";
 namespace LS = ::zw_esp8266::lightshow;
 
-inline constexpr LS::StripSizeType STRIP_SIZE = 666;
-inline constexpr uint8_t TARGET_FPS = 40;
+inline constexpr LS::StripSizeType STRIP_SIZE = 108;
+inline constexpr uint8_t TARGET_FPS = 80;
 // inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CLASSIC();
 inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
-// inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CUSTOM(280, 50, 270);
+// inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CUSTOM(320, 45, 270);
 
 inline constexpr uint16_t RENDER_TASK_STACK = 1200;
 inline constexpr UBaseType_t RENDER_TASK_PRIORITY = 10;
@@ -75,18 +75,19 @@ esp_err_t _lightshow() {
   vTaskDelay(CONFIG_FREERTOS_HZ / 2);
 
   // You can also add additional transitions after driver starts
-  ESP_LOGI(TAG, "Adding some more LightShow targets...");
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ColorDotTarget::Create(
+  ESP_LOGI(TAG, "Adding computed color dot LightShow targets...");
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
       4000, {.color = {0x08, 0x16, 0x32}, .glow = 50, .pos_pgrs = LS::PGRS(0.3)},
       LS::DotState{.color = {0x00, 0x02, 0x01}, .glow = 50, .pos_pgrs = 0})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ColorDotTarget::Create(
-      5000, {.color = {0x32, 0x16, 0x08}, .glow = 30, .pos_pgrs = LS::PGRS(1)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ColorDotTarget::Create(
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+      5000, {.color = {0x32, 0x08, 0x16}, .glow = 30, .pos_pgrs = LS::PGRS(1)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
       3000, {.color = {0x16, 0x32, 0x08}, .glow = 80, .pos_pgrs = LS::PGRS(0.25)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ColorDotTarget::Create(
-      2000, {.color = {0x00, 0x24, 0x00}, .glow = 15, .pos_pgrs = LS::PGRS(0.1)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ColorDotTarget::Create(
-      2000, {.color = {0x00, 0x02, 0x01}, .glow = 15, .pos_pgrs = LS::PGRS(0)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+      2000, {.color = {0x00, 0x24, 0x00}, .glow = 30, .pos_pgrs = LS::PGRS(0.1)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+      2000, {.color = {0x08, 0x00, 0x24}, .glow = 15, .pos_pgrs = LS::PGRS(0)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(200, {0x08, 0x24, 0x16})));
 
   // Here is how to wait for the targets
   int target_idx = 0;
@@ -97,21 +98,67 @@ esp_err_t _lightshow() {
     ESP_LOGI(TAG, "Target #%d was reached", ++target_idx);
   }
 
-  LS::IOStats stats = LS::DriverStats();
-  uint32_t duration_ms = std::max(1U, (uint32_t)(esp_timer_get_time() - stats.start_time) / 1000);
-  uint16_t fps10x = stats.frames_rendered * 100 / (duration_ms / 100);
-  ESP_LOGI(TAG, "Rendered %d frames in %d ms (%d.%d fps)", stats.frames_rendered, duration_ms,
-           fps10x / 10, fps10x % 10);
-  ESP_LOGI(TAG, "Underflow occurred in %d frames, and there were %d near-misses",
-           stats.underflow_actual, stats.underflow_near_miss);
-  uint16_t idle_pml = stats.idle_wait / duration_ms;
-  ESP_LOGI(TAG, "Driver idle waited %d ms (%d.%d%%) and busy waited %d ms", stats.idle_wait / 1000,
-           idle_pml / 10, idle_pml % 10, stats.busy_wait / 1000);
+  {
+    LS::IOStats stats = LS::DriverStats();
+    uint32_t duration_ms = std::max(1U, (uint32_t)(esp_timer_get_time() - stats.start_time) / 1000);
+    uint16_t fps10x = stats.frames_rendered * 100 / (duration_ms / 100);
+    ESP_LOGI(TAG, "Rendered %d frames in %d ms (%d.%d fps)", stats.frames_rendered, duration_ms,
+             fps10x / 10, fps10x % 10);
+    ESP_LOGI(TAG, "Underflow occurred in %d frames, and there were %d near-misses",
+             stats.underflow_actual, stats.underflow_near_miss);
+    uint16_t idle_pml = stats.idle_wait / duration_ms;
+    ESP_LOGI(TAG, "Driver idle waited %d ms (%d.%d%%) and busy waited %d ms",
+             stats.idle_wait / 1000, idle_pml / 10, idle_pml % 10, stats.busy_wait / 1000);
 #if ISR_DEVELOPMENT
-  ESP_LOGI(TAG, "ISR data serving latency (us): [%d, %d]",
-           stats.isr_process_latency_low / g_esp_ticks_per_us,
-           stats.isr_process_latency_high / g_esp_ticks_per_us);
+    ESP_LOGI(TAG, "ISR data serving latency (us): [%d, %d]",
+             stats.isr_process_latency_low / g_esp_ticks_per_us,
+             stats.isr_process_latency_high / g_esp_ticks_per_us);
 #endif
+  }
+
+  // You can even add additional transitions after all previous targets completed for a while
+  vTaskDelay(CONFIG_FREERTOS_HZ / 2);
+
+  ESP_LOGI(TAG, "Adding blended color dot LightShow targets...");
+  LS::DriverStats();  // Since the driver is already running, reset its stats for better accuracy.
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
+      4000, {.color = {0x08, 0x16, 0x32}, .glow = 50, .pos_pgrs = LS::PGRS(0.3)},
+      LS::DotState{.color = {0x00, 0x02, 0x01}, .glow = 50, .pos_pgrs = 0})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
+      5000, {.color = {0x32, 0x08, 0x16}, .glow = 30, .pos_pgrs = LS::PGRS(1)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
+      3000, {.color = {0x16, 0x32, 0x08}, .glow = 80, .pos_pgrs = LS::PGRS(0.25)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
+      2000, {.color = {0x00, 0x24, 0x00}, .glow = 30, .pos_pgrs = LS::PGRS(0.1)})));
+  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
+      2000, {.color = {0x08, 0x00, 0x24}, .glow = 15, .pos_pgrs = LS::PGRS(0)})));
+
+  // For for completion again
+  while (true) {
+    auto events =
+        renderer->WaitFor(LS::RENDERER_START_TARGET | LS::RENDERER_IDLE_TARGET, portMAX_DELAY);
+    if (events & LS::RENDERER_IDLE_TARGET) break;
+    ESP_LOGI(TAG, "Target #%d was reached", ++target_idx);
+  }
+
+  {
+    LS::IOStats stats = LS::DriverStats();
+    uint32_t duration_ms = std::max(1U, (uint32_t)(esp_timer_get_time() - stats.start_time) / 1000);
+    uint16_t fps10x = stats.frames_rendered * 100 / (duration_ms / 100);
+    ESP_LOGI(TAG, "Rendered %d frames in %d ms (%d.%d fps)", stats.frames_rendered, duration_ms,
+             fps10x / 10, fps10x % 10);
+    ESP_LOGI(TAG, "Underflow occurred in %d frames, and there were %d near-misses",
+             stats.underflow_actual, stats.underflow_near_miss);
+    uint16_t idle_pml = stats.idle_wait / duration_ms;
+    ESP_LOGI(TAG, "Driver idle waited %d ms (%d.%d%%) and busy waited %d ms",
+             stats.idle_wait / 1000, idle_pml / 10, idle_pml % 10, stats.busy_wait / 1000);
+#if ISR_DEVELOPMENT
+    ESP_LOGI(TAG, "ISR data serving latency (us): [%d, %d]",
+             stats.isr_process_latency_low / g_esp_ticks_per_us,
+             stats.isr_process_latency_high / g_esp_ticks_per_us);
+#endif
+  }
 
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));

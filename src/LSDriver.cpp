@@ -642,8 +642,7 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
     ESP_LOGE(TAG, "Invalid baud rate of %d", config.baud_rate);
     return ESP_ERR_INVALID_ARG;
   }
-  uint32_t frame_data_time_us =
-      (frame_uart_bits * 1000000ULL + config.baud_rate - 1) / config.baud_rate;
+  uint32_t frame_data_time_us = (uint64_t)frame_uart_bits * 10000 / (config.baud_rate / 100);
   uint32_t frame_time_us = frame_data_time_us + config.std_reset_us;
 
   // Rough estimation of FPS.

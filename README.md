@@ -107,15 +107,16 @@ The driver API interface is pretty simple and self-explanatory. Notable common a
    IDF ring buffer for this task. Due to its lower efficiency, it cannot produce good-looking visuals
    even if the timings are correct, which will make the timing adjustment exceedingly difficult.
 
-   * Say if you have a 200 pixel strip, configure the renderer with *less* pixels, e.g. 72 or 108,
+   * Say if you have a 300 pixel strip, configure the renderer with *slightly less* pixels, e.g. 270
      and a high target FPS, e.g. 100.
      - Using a multiple of 9 pixels can help you better determine a good `std_reset_us` value.
-   * Set up the driver using a custom `IOConfig` with a *very small* jitter buffer, e.g.
-     `CONFIG_WS2812_CUSTOM(<std_reset_us>, <min_reset_us>, 270)`.
-   * Run 10~30 sec "color dot" transitions, this would create plenty of opportunities for potential frame
-     underflow near-misses and actual misses.
-   * Start by setting both `std_reset_us` and `min_reset_us` to the value from the datasheet:
-     - Unless you are very lucky and those numbers are exactly right, you should lots of visual defects.
+   * Run the demo using an extreme configuration to create plenty of opportunities for frame underflow
+     near-misses and actual misses:
+     - Use a custom `IOConfig` with a *minimal* jitter buffer,
+       e.g. `CONFIG_WS2812_CUSTOM(<std_reset_us>, <min_reset_us>, 200)`.;
+     - Using MenuConfig, set "The number of pixels in a ring buffer block" to `4`.
+   * First set both `std_reset_us` and `min_reset_us` to the value from the datasheet:
+     - Unless you are very lucky and those numbers are exactly right, you should some visual defects.
      - If you see *more* pixels than you configured lit up, that means `std_reset_us` is too **low**;
      - If you see flickers, that means `min_reset_us` is too **high**.
      - You may see both happening at the same time.
@@ -130,7 +131,7 @@ The driver API interface is pretty simple and self-explanatory. Notable common a
          completely but another visual defect emerges: the moving dot "stutters" (i.e. pause-resume-pause).
          Increase the value to reduce the stutter, until you see a smooth transition.
 
-5. `DriverStart()` parameters, `task_stack` and `task_priority`:
+1. `DriverStart()` parameters, `task_stack` and `task_priority`:
    - Pixel data are [generated dynamically](#frame-rendering-api), and this process is driven by a
      dedicated task, whose stack space is consumed during this process. If you have a complex
      transition you may run out of the default allocated stack space. When that happens you can

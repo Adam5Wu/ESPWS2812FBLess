@@ -47,6 +47,7 @@ void Renderer::Enqueue(std::unique_ptr<Target> target, bool drop_ongoing) {
     }
   }
   targets_.push(std::move(target));
+  xEventGroupClearBits(events_, RENDERER_IDLE_TARGET);
   xSemaphoreGive(target_lock_);
 }
 
@@ -108,8 +109,7 @@ Frame* Renderer::RenderFrame() {
         }
         if (overshoot_us_) {
           // Catch up with the overshoots from previous targets.
-          // Since the maximum fps is 100, the shortest possible frame interval is 10ms.
-          // Speed up by 1/10 of that, i.e. 1ms, should be unnoticeable.
+          // Speed up each frame's progress by 1ms should be unnoticeable.
           uint32_t catchup_us = std::min(overshoot_us_, 1000U);
           target_base_time_ -= catchup_us;
           overshoot_us_ -= catchup_us;
@@ -121,8 +121,14 @@ Frame* Renderer::RenderFrame() {
         auto new_frame_ = cur_target.RenderFrame(pgrs);
 
         if (pgrs == PGRS_DENOM) {
-          // This is the last frame, no blending needed.
-          base_frame_ = std::move(new_frame_);
+          // This is the last frame, if it is not translucent no blending needed.
+          if (blender_frame_ == nullptr || !new_frame_->IsTranslucent()) {
+            base_frame_ = std::move(new_frame_);
+          } else {
+            // Blending is still needed for translucent last frame.
+            blender_frame_->UpdateOverlay(std::move(new_frame_), UINT8_MAX);
+          }
+
           targets_.pop();
           target_base_time_ = 0;
 

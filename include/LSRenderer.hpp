@@ -19,8 +19,17 @@
 
 namespace zw_esp8266::lightshow {
 
-inline constexpr StripSizeType kMaxStripSize = 1200;
+// Realistically, to get ~30fps the maximum number of pixel is around 1024.
+// Increasing to 1280, you only get ~25fps which is probably the minimum for transition to be
+// considered "smooth". Adding more pixels, transition will start to feel like "turning slides".
+//
+// A more reasonable way to control super long strips is using 1:N driving, e.g. every group
+// of 8 LEDs are driven by one controller, that allows controlling a 4096 *LED* strip as a
+// 512 *pixel* strip, which can reach ~60pfs.
+inline constexpr StripSizeType kMaxStripSize = 4096;
 inline constexpr uint8_t kDefaultFPS = 60;
+// This value may be updated higher, but to reliably reach the target fps, you will also need
+// to increase RTOS tick frequency to match this value.
 inline constexpr uint8_t kMaxFPS = 120;
 
 inline constexpr EventBits_t RENDERER_INIT_FRAME = BIT0;    // Once for the lifetime of a renderer

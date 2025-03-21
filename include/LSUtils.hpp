@@ -52,10 +52,12 @@ inline constexpr uint32_t PGRS_DENOM = 1U << PGRS_PRECISION;
 constexpr ProgressionType PGRS(float frac) { return PGRS_DENOM * frac; }
 
 inline ProgressionType progression(uint32_t cur, uint32_t total) {
-  assert(cur <= PGRS_MAX_DIVNUM);
-  return (total < PGRS_MIN_DIVISOR)
-             ? PGRS_DENOM
-             : std::min((cur << PGRS_DIVNUM_FACTOR) / (total >> PGRS_DENUM_FACTOR), PGRS_DENOM);
+  if (cur >= total) return PGRS_DENOM;
+  if (total > PGRS_MIN_DIVISOR) {
+    assert(cur <= PGRS_MAX_DIVNUM);
+    return (cur << PGRS_DIVNUM_FACTOR) / (total >> PGRS_DENUM_FACTOR);
+  }
+  return (cur << PGRS_PRECISION) / total;
 }
 
 // Convert the progression value to 8-bit alpha [0,255].
@@ -63,7 +65,7 @@ inline constexpr uint8_t ALPHA_PRECISION = 8;
 
 inline uint8_t pgrs_to_alpha(ProgressionType pgrs) {
   assert(pgrs <= PGRS_DENOM);
-  return pgrs < PGRS_DENOM ? pgrs >> (PGRS_PRECISION - ALPHA_PRECISION) : UINT8_MAX;
+  return ((uint32_t)pgrs * UINT8_MAX) >> PGRS_PRECISION;
 }
 
 // Blend two values using the above approx-permillage value.
