@@ -63,4 +63,47 @@ menu "Framebuffer-less WS2812 driver"
 
     endchoice
 
+    choice
+        prompt "Alpha blending mode"
+        default ESP2812FBLESS_ALPHA_BLEND_STRAIGHT
+        help
+            Configure how translucent pixels (i.e. having an alpha channel) are blended.
+            - Use straight blending for the best visual. But it may not be able to support
+            certain filtering operations that might be added in the future;
+            - Premultiplied blending can support more filtering operations, but it would likely
+            be slower, *and* incurs more visual defects.
+
+        config ESP2812FBLESS_ALPHA_BLEND_STRAIGHT
+            bool "Straight blending"
+            help
+                Translucent pixels are blended directly with the background.
+                This option produces the best visual. But it may not be able to support
+                certain filtering operations that might be added in the future.
+
+                This is currently the preferred option.
+        
+        config ESP2812FBLESS_ALPHA_BLEND_PREMULT_10B
+            bool "Premultiplied (10-bit)"
+            help
+                Translucent pixels are pre-multiplied, then blended with the background.
+                This option is the slowest, but it preserves 10-bit color info which reduces
+                rounding errors during blending, and hence produces less visual defects.
+
+        config ESP2812FBLESS_ALPHA_BLEND_PREMULT_8B
+            bool "Premultiplied (8-bit)"
+            help
+                Translucent pixels are pre-multiplied, then blended with the background.
+                This option is faster than 10-bit pre-multiplied, but it will produce a lot
+                more rounding errors, thus visual defects, especially at low opacity values.
+
+    endchoice
+
+    config ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+        bool "Use optimized blending algorithm (avoids division)"
+        default y
+        help
+            Use optimized blending algorithm (recommended).
+            It avoids using divisions, so would run faster than the standard algorithm.
+            Should produce identical results.
+
 endmenu

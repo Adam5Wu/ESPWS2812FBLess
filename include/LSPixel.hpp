@@ -33,19 +33,15 @@ enum class RGB8BLayout : uint8_t { RGB8B_LAYOUT_MAP(RGB8B_ENUM_VAL) };
     uint8_t c2;                    \
     uint8_t c3;                    \
   };                               \
-  RGB8BFlatType u;
+  RGB8BFlatType u8;
 
 // Internal pixel is always 8-bit [R,G,B].
 struct RGB8BPixel {
+  using _this = RGB8BPixel;
+
   union {
     RGB8B_LAYOUT(r, g, b)
   };
-
-  RGB8BPixel() = default;
-  constexpr RGB8BPixel(uint8_t r8, uint8_t g8, uint8_t b8) : r(r8), g(g8), b(b8) {}
-
-  RGB8BPixel(const RGB888& in) { *this = in; }
-  inline RGB8BPixel& operator=(const RGB888& in);
 
   operator RGB888&() { return *reinterpret_cast<RGB888*>(this); }
   operator const RGB888&() const { return *reinterpret_cast<const RGB888*>(this); }
@@ -58,14 +54,14 @@ struct RGB8BPixel {
   // Dynamically produce a pixel in `out` using the given `layout`.
   inline void Transcribe(RGB8BLayout layout, RGB8BFlatType& out);
 
-  static constexpr RGB8BPixel BLACK() { return {0x00, 0x00, 0x00}; }
-  static constexpr RGB8BPixel RED() { return {0xFF, 0x00, 0x00}; }
-  static constexpr RGB8BPixel GREEN() { return {0x00, 0xFF, 0x00}; }
-  static constexpr RGB8BPixel BLUE() { return {0x00, 0x00, 0xFF}; }
-  static constexpr RGB8BPixel YELLOW() { return {0xFF, 0xFF, 0x00}; }
-  static constexpr RGB8BPixel CYAN() { return {0x00, 0xFF, 0xFF}; }
-  static constexpr RGB8BPixel MAGENTA() { return {0xFF, 0x00, 0xFF}; }
-  static constexpr RGB8BPixel WHITE() { return {0xFF, 0xFF, 0xFF}; }
+  static constexpr _this BLACK() { return {0x00, 0x00, 0x00}; }
+  static constexpr _this RED() { return {0xFF, 0x00, 0x00}; }
+  static constexpr _this GREEN() { return {0x00, 0xFF, 0x00}; }
+  static constexpr _this BLUE() { return {0x00, 0x00, 0xFF}; }
+  static constexpr _this YELLOW() { return {0xFF, 0xFF, 0x00}; }
+  static constexpr _this CYAN() { return {0x00, 0xFF, 0xFF}; }
+  static constexpr _this MAGENTA() { return {0xFF, 0x00, 0xFF}; }
+  static constexpr _this WHITE() { return {0xFF, 0xFF, 0xFF}; }
 };
 
 #define RGB8B_UNION_TYPEDEF(name, c1, c2, c3)                \
@@ -88,10 +84,6 @@ RGB8B_LAYOUT_MAP(RGB8B_UNION_TYPEDEF)
 
 //---------------------------------------------
 // RGB8BPixel Implementations
-
-inline RGB8BPixel& RGB8BPixel::operator=(const RGB888& in) {
-  return reinterpret_cast<RGB888&>(*this) = in, *this;
-}
 
 #define LAYOUT_TRANS_IMPL(name, c1, c2, c3) \
   inline void RGB8BPixel::Transcribe(name& out) { out = *this; }
@@ -134,65 +126,237 @@ inline constexpr RGB8BLayout RGB8BDefaultLayout =
     "Unrecognized pixel format configuration!";
 #endif
 
-// An RGB 8-bit pixel data with a 8-bit alpha channel
-// The alpha channel specified the transparency, which allows
-// the pixel to "blend" with the background.
-// See `RGBA8BBlendPixel`.
+using RGBA8BFlatType = uint32_t;
+
+// Little endian byte order
+#define RGBA_FLATNAME(c1, c2, c3, c4) c4##c3##c2##c1
+
+#define RGBA8B_LAYOUT(c1, c2, c3, c4) \
+  struct __attribute__((packed)) {    \
+    uint8_t c1;                       \
+    uint8_t c2;                       \
+    uint8_t c3;                       \
+    uint8_t c4;                       \
+  };                                  \
+  RGBA8BFlatType RGBA_FLATNAME(c1, c2, c3, c4);
+
+union RGBA8888 {
+  RGBA8B_LAYOUT(r, g, b, a)
+
+  operator RGB888&() { return *reinterpret_cast<RGB888*>(this); }
+  operator const RGB888&() const { return *reinterpret_cast<const RGB888*>(this); }
+};
+
+// Implements optimized 8-bit alpha multiplication for blending
+//
+// Algorithm from https://arxiv.org/pdf/2202.02864:
+// When x in [0,255]:
+//   x*a / 255 ~= (x * (a|a<<8) + 0x8080) / (256*256)
+//
+// My own extension for diff blending where x can be in [-255,-1]:
+//   x*a / 255 ~= (x * (a|a<<8) + 0x7F7F) / (256*256)
+// Verified for the entire range of -x*a, where {-x,a} in [0,255],
+// this produced identical results to: (-x*a) / (double)255 + 0.5
+//
+// To help understand the algorithm, the idea is
+//   x/255 = (x + x/255) / 256 ~= (x + x/256 + delta) / 256
+//
+// Parameters:
+//   x: must have range [-255, 255]
+//   a: must have range [0, 255]
+//
+// Results are in range [-255, 255]
+inline int16_t Fast8BDiffAlphaPremult(int32_t x, uint16_t a) {
+  return x ? ((x * ((a << 8) | a) + (x > 0 ? 0x8080 : 0x7F7F)) >> 16) : 0;
+}
+
+// An RGB 8-bit pixel data with an 8-bit alpha channel
+// The alpha channel specifies the transparency, allowing the pixel to "blend" with the background.
 struct RGBA8BPixel {
+  using _this = RGBA8BPixel;
+
   union {
-    struct {
-      uint8_t r;
-      uint8_t g;
-      uint8_t b;
-      uint8_t a;
-    };
-    uint32_t data;
+    RGBA8B_LAYOUT(r, g, b, a)
   };
 
   RGBA8BPixel() = default;
-  RGBA8BPixel(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t a8) : r(r8), g(g8), b(b8), a(a8) {}
-  RGBA8BPixel(const RGB8BPixel& in, uint8_t alpha) : RGBA8BPixel(in.r, in.g, in.b, alpha) {}
+  constexpr RGBA8BPixel(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t a8)
+      : r(r8), g(g8), b(b8), a(a8) {}
+  constexpr RGBA8BPixel(const RGB888& in, uint8_t alpha) : RGBA8BPixel(in.r, in.g, in.b, alpha) {}
+  constexpr RGBA8BPixel(const RGBA8888& in)
+      : RGBA_FLATNAME(r, g, b, a)(in.RGBA_FLATNAME(r, g, b, a)) {}
+
+  inline bool IsTransparent() const { return a == 0; }
+  inline bool IsSolid() const { return a == UINT8_MAX; }
+
+  operator const RGBA8888&() const { return *reinterpret_cast<const RGBA8888*>(this); }
+  operator RGBA8888&() { return *reinterpret_cast<RGBA8888*>(this); }
 
   // Access the RGB data as `RGB8BPixel`, ignoring the alpha channel.
   operator const RGB8BPixel&() const { return *reinterpret_cast<const RGB8BPixel*>(this); }
   operator RGB8BPixel&() { return *reinterpret_cast<RGB8BPixel*>(this); }
+
+  static constexpr _this TRANSPARENT(const RGB888& in = RGB8BPixel::BLACK()) { return {in, 0x00}; }
+  static constexpr _this SOLID(const RGB888& in) { return {in, UINT8_MAX}; }
+
+  inline RGB888 Blend(const RGB888& bg) const {
+    if (IsTransparent()) return bg;
+    if (IsSolid()) return *reinterpret_cast<const RGB888*>(this);
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    return {(uint8_t)(bg.r + Fast8BDiffAlphaPremult((int32_t)r - bg.r, a)),
+            (uint8_t)(bg.g + Fast8BDiffAlphaPremult((int32_t)g - bg.g, a)),
+            (uint8_t)(bg.b + Fast8BDiffAlphaPremult((int32_t)b - bg.b, a))};
+#else
+    return {(uint8_t)(bg.r + (int32_t)((r - bg.r) * a + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(bg.g + (int32_t)((g - bg.g) * a + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(bg.b + (int32_t)((b - bg.b) * a + (UINT8_MAX >> 1)) / UINT8_MAX)};
+#endif
+  }
 };
 
-// Stores a pre-computed RGB pixel for color blending.
-// A color blend operation is:
-//   SrcColor*Alpha/256 + DstColor*(256-Alpha)/256
-// The source is pre-determined, but the destination is not.
-// Hence half of the blending can be done ahead of time and
-// cached for faster operation.
-struct RGBA8BBlendPixel {
+// An RGB 8-bit premultiplied pixel data with an 8-bit complementary alpha channel
+struct RGB8BBlendPixel {
+  using _this = RGB8BBlendPixel;
+
   union {
-    struct {
-      uint8_t r;   // Pre-multiplied R: Src.r*Alpha/256
-      uint8_t g;   // Pre-multiplied G: Src.g*Alpha/256
-      uint8_t b;   // Pre-multiplied B: Src.b*Alpha/256
-      uint8_t ca;  // Complementary Alpha: 255-Alpha
-    };
-    uint32_t data;
+    RGBA8B_LAYOUT(pr, pg, pb, ca)
   };
 
-  RGBA8BBlendPixel() = default;
-  RGBA8BBlendPixel(const RGBA8BPixel& in) { *this = in; }
-  RGBA8BBlendPixel& operator=(const RGBA8BPixel& in) {
-    return precompute(in.r, in.g, in.b, in.a), *this;
+  RGB8BBlendPixel() = default;
+  RGB8BBlendPixel(const RGBA8BPixel& in) { *this = in; }
+  _this& operator=(const RGBA8BPixel& in) { return precompute(in.r, in.g, in.b, in.a), *this; }
+
+  inline bool IsTransparent() const { return ca == UINT8_MAX; }
+  inline bool IsSolid() const { return ca == 0; }
+
+  static const _this TRANSPARENT(const RGB888& in = RGB8BPixel::BLACK()) { return {{in, 0x00}}; }
+  static const _this SOLID(const RGB888& in) { return {{in, UINT8_MAX}}; }
+
+  void precompute(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t a8) {
+    ca = UINT8_MAX - a8;
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    pr = Fast8BDiffAlphaPremult(r8, a8);
+    pg = Fast8BDiffAlphaPremult(g8, a8);
+    pb = Fast8BDiffAlphaPremult(b8, a8);
+#else
+    pr = ((int16_t)r8 * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pg = ((int16_t)g8 * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pb = ((int16_t)b8 * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+#endif
   }
 
-  void precompute(uint8_t ir, uint8_t ig, uint8_t ib, uint8_t ia) {
-    r = (uint8_t)(((uint32_t)ir * ia) >> 8);
-    g = (uint8_t)(((uint32_t)ig * ia) >> 8);
-    b = (uint8_t)(((uint32_t)ib * ia) >> 8);
-    ca = UINT8_MAX - ia;
-  }
-  RGB8BPixel blend(const RGB8BPixel& bg) {
-    return {(uint8_t)(r + (((uint32_t)bg.r * ca + bg.r) >> 8)),
-            (uint8_t)(g + (((uint32_t)bg.g * ca + bg.g) >> 8)),
-            (uint8_t)(b + (((uint32_t)bg.b * ca + bg.b) >> 8))};
+  inline RGB888 Blend(const RGB888& bg) const {
+    if (IsTransparent()) return bg;
+    if (IsSolid()) return *reinterpret_cast<const RGB888*>(this);
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    return {(uint8_t)(pr + Fast8BDiffAlphaPremult(bg.r, ca)),
+            (uint8_t)(pg + Fast8BDiffAlphaPremult(bg.g, ca)),
+            (uint8_t)(pb + Fast8BDiffAlphaPremult(bg.b, ca))};
+#else
+    return {(uint8_t)(pr + ((uint16_t)bg.r * ca + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(pg + ((uint16_t)bg.g * ca + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(pb + ((uint16_t)bg.b * ca + (UINT8_MAX >> 1)) / UINT8_MAX)};
+#endif
   }
 };
+
+#undef RGBA8B_LAYOUT
+
+// Implements optimized alpha multiplication with 10-bit return for blending
+//
+// Why the 2 extra bits in the return?
+//
+// Pre-multiplied alpha blending works by *separately* computing the overlay pixels
+// and the blend background and combine them together. However, since each rounding
+// occurs at computation, the combined data may have off-by-1 rounding errors.
+//
+// On a regular display the pixel responds to values linearly, so 0x01 looks almost
+// indistinguishable from 0x00 or 0x02; but LDE strips responds very differently.
+// 0x00, 0x01 and 0x02 produces vastly different luminosity. So, off-by-one rounding
+// errors will show up as very visible defects.
+//
+// My extended algorithm based on https://arxiv.org/pdf/2202.02864.
+// When x in [0,255]:
+//   (4x*a)/255 ~= (x * (a>>6|a<<2|a<<10) + 0x8080) / (256*256)
+// Verified for the entire range of x*a, where {x,a} in [0,255],
+// this produced identical results to: (4x*a) / (double)255 + 0.5
+//
+// Parameters:
+//   x: must have range [0, 255]
+//   a: must have range [0, 255]
+//
+// Results are in range [0, 1023]
+inline uint16_t FastAlphaPremult10B(uint32_t x, uint32_t a) {
+  return x ? ((x * ((a << 10) | (a << 2) | (a >> 6)) + 0x8080) >> 16) : 0;
+}
+
+// An RGB 10-bit premultiplied pixel data with an 8-bit complementary alpha channel
+struct RGB10BBlendPixel {
+  using _this = RGB10BBlendPixel;
+
+  union {
+    struct {
+      uint32_t pr10 : 10;
+      uint32_t pg10 : 10;
+      uint32_t pb10 : 10;
+      uint32_t _ : 2;
+    };
+    uint32_t rgb10;
+  };
+  uint8_t ca;
+
+  RGB10BBlendPixel() = default;
+  RGB10BBlendPixel(const RGBA8BPixel& in) { *this = in; }
+  _this& operator=(const RGBA8BPixel& in) { return precompute(in.r, in.g, in.b, in.a), *this; }
+
+  inline bool IsTransparent() const { return ca == UINT8_MAX; }
+  inline bool IsSolid() const { return ca == 0; }
+
+  static const _this TRANSPARENT(const RGB888& in = RGB8BPixel::BLACK()) { return {{in, 0x00}}; }
+  static const _this SOLID(const RGB888& in) { return {{in, UINT8_MAX}}; }
+
+  void precompute(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t a8) {
+    ca = UINT8_MAX - a8;
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    pr10 = FastAlphaPremult10B(r8, a8);
+    pg10 = FastAlphaPremult10B(g8, a8);
+    pb10 = FastAlphaPremult10B(b8, a8);
+#else
+    pr10 = (((int32_t)r8 << 2) * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pg10 = (((int32_t)g8 << 2) * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pb10 = (((int32_t)b8 << 2) * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+#endif
+  }
+
+  inline RGB888 Blend(const RGB888& bg) const {
+    if (IsTransparent()) return bg;
+    if (IsSolid()) return {(uint8_t)(pr10 >> 2), (uint8_t)(pg10 >> 2), (uint8_t)(pb10 >> 2)};
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    return {(uint8_t)((pr10 + FastAlphaPremult10B(bg.r, ca)) >> 2),
+            (uint8_t)((pg10 + FastAlphaPremult10B(bg.g, ca)) >> 2),
+            (uint8_t)((pb10 + FastAlphaPremult10B(bg.b, ca)) >> 2)};
+#else
+    return {(uint8_t)((pr10 + (((uint32_t)bg.r << 2) * ca) / UINT8_MAX + 2) >> 2),
+            (uint8_t)((pg10 + (((uint32_t)bg.g << 2) * ca) / UINT8_MAX + 2) >> 2),
+            (uint8_t)((pb10 + (((uint32_t)bg.b << 2) * ca) / UINT8_MAX + 2) >> 2)};
+#endif
+  }
+};
+
+#if defined(CONFIG_ESP2812FBLESS_ALPHA_BLEND_STRAIGHT)
+using AlphaBlendPixel = RGBA8BPixel;
+#elif defined(CONFIG_ESP2812FBLESS_ALPHA_BLEND_PREMULT_10B)
+using AlphaBlendPixel = RGB10BBlendPixel;
+#elif defined(CONFIG_ESP2812FBLESS_ALPHA_BLEND_PREMULT_8B)
+using AlphaBlendPixel = RGB8BBlendPixel;
+#else
+#error Unsupported alpha blending mode!
+#endif
 
 }  // namespace zw_esp8266::lightshow
 

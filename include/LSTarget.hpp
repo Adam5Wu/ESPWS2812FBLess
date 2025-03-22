@@ -79,20 +79,54 @@ class ColorDotTarget : public Target {
  public:
   const DotState dot;
 
-  static DataOrError<std::unique_ptr<Target>> Create(
-      uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
-  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+  static esp_err_t ValidateDots(DotState dot, std::optional<DotState> def_dot);
+  
+  void BaseFrameInit(const Frame* base_frame);
+  DotState CurrentDotState(ProgressionType pgrs) const;
 
  protected:
   // If provided, will be used as base_dot if the base_frame is not a `ColorDotFrame`.
   // (Otherwise, will start with a hard-coded default dot, see `RenderInit()`.)
   const std::optional<DotState> def_dot_;
   DotState base_dot_;
-  RGB888 bg_color_;
 
   ColorDotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
       : Target(duration_us), dot(dot), def_dot_(def_dot) {}
+};
+
+// Render each pixel of the dot using real-time floating point arithmetics
+// Note that there are more efficient ways to produce pixels data, see `BlendedColorDotTarget`.
+// This implementation is just a demonstration of technical possibility, and doubles as a
+// utility to help determining proper reset times.
+class ComputedColorDotTarget : public ColorDotTarget {
+ public:
+  static DataOrError<std::unique_ptr<Target>> Create(
+      uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
+
+  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
+  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+
+ protected:
+  RGB888 bg_color_;
+
+  ComputedColorDotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
+      : ColorDotTarget(duration_us, dot, def_dot) {}
+};
+
+// Pre-compute the dot pixels as `RGBA8BBlendPixel` for more efficient rendering.
+class BlendedColorDotTarget : public ColorDotTarget {
+ public:
+  static DataOrError<std::unique_ptr<Target>> Create(
+      uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
+
+  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
+  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+
+ protected:
+  RGB888 bg_color_;
+
+  BlendedColorDotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
+      : ColorDotTarget(duration_us, dot, def_dot) {}
 };
 
 }  // namespace zw_esp8266::lightshow

@@ -100,6 +100,10 @@ jobs:
         key: ${{ runner.os }}-piobuild-${{ github.sha }}
         restore-keys: ${{ runner.os }}-piobuild-
 
+    # Fix mtime so PlatformIO build cache will work
+    - name: Restore Source Timestamps
+      uses: chetan/git-restore-mtime-action@v2
+
     - name: PlatformIO Build
       run: |
         platformio run -d example
