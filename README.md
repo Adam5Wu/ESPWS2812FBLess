@@ -171,6 +171,14 @@ The rendering APIs reflect the aforementioned concepts:
    - Two `Target` implementations are provided in the "stock" implementation:
      - `UniformColorTarget`: Displays a single color across the entire strip;
      - `ColorDotTarget`: Displays a color dot at a certain position on the strip.
+       - There are two variants:
+         - `ComputedColorDotTarget`: produces dot pixels data at realtime, using floating point
+           arithmetics. It is serves as a technical feasibility demonstration, as well as a
+           computationally expensive transition, good for creating frame underflow and near-misses
+           which can help determining the reset timing characteristics of an LED strip.
+         - `BlendedColorDotTarget`: a much less demanding implementation that produces the same
+           visual transition, using pre-computed dot pixels with translucency (alpha channel),
+           and leverages the render's frame blending capability.
    - You could implement additional targets that perform fancier transitions.
 3. When the renderer runs the transition, it will:
    - Invoke `Target::RenderInit()` at the start of the transition, providing a `Frame` as the
@@ -185,7 +193,7 @@ The rendering APIs reflect the aforementioned concepts:
    - Regardless of the timing in between a transition, the renderer will ensure the final frame
      of a target is rendered (even if the time passed exceeds the target duration). And that frame
      will be provided to the next target as the initial state of the transition.
-1. "Frames" are also abstract concepts, which corresponds to the `Frame` abstract class:
+4. "Frames" are also abstract concepts, which corresponds to the `Frame` abstract class:
    - A frame does not have to represent *each* pixel as a concrete memory allocation. Instead, they
      *must* implement `GetPixelData()` which enumerates the pixel data sequentially.
      - Each return consists of an `RGB8BPixel` and an `end_of_frame` indicator, which is set *after*

@@ -55,8 +55,10 @@ PixelWithStatus BlenderFrame::GetPixelData() {
   }
 
   StripSizeType scan_pos = index_++;
+
   auto overlay = translucent_blend_ ? blend_frame_->GetPixelData().blend_pixel
-                                    : RGBA8BPixel({blend_frame_->GetPixelData().rgb, alpha_});
+                                    : AlphaBlendPixel({blend_frame_->GetPixelData().rgb, alpha_});
+
   return PixelWithStatus{.rgb = overlay.Blend(base_frame_->GetPixelData().rgb),
                          .end_of_frame = scan_pos >= size};
 }
@@ -83,7 +85,7 @@ PixelWithStatus ComputedColorDotFrame::GetPixelData() {
   if (scan_pos >= start_pos_ && scan_pos <= end_pos_) {
     PixelWithStatus result = {};
     float x = dot_pos_ - scan_pos;
-    uint16_t pgrs = std::exp(-x * x / two_sigma_sqr_) * PGRS_DENOM;
+    ProgressionType pgrs = std::exp(-x * x / two_sigma_sqr_) * PGRS_DENOM + 0.5;
     result.pixel.r = blend_value(bgcolor.r, dot.color.r, pgrs);
     result.pixel.g = blend_value(bgcolor.g, dot.color.g, pgrs);
     result.pixel.b = blend_value(bgcolor.b, dot.color.b, pgrs);
@@ -112,7 +114,7 @@ BlendedColorDotFrame::BlendedColorDotFrame(StripSizeType strip_size, const DotSt
   blend_pixels_.resize(end_pos_ - start_pos_ + 1);
   for (StripSizeType i = start_pos_; i <= end_pos_; ++i) {
     float x = dot_pos_ - i;
-    uint8_t alpha = std::exp(-x * x / two_sigma_sqr_) * UINT8_MAX;
+    uint8_t alpha = std::exp(-x * x / two_sigma_sqr_) * UINT8_MAX + 0.5;
     blend_pixels_[(i - start_pos_)] = RGBA8BPixel(dot.color, alpha);
   }
 }
@@ -121,7 +123,7 @@ PixelWithStatus BlendedColorDotFrame::GetPixelData() {
   StripSizeType scan_pos = index_++;
   return PixelWithStatus{.blend_pixel = (scan_pos >= start_pos_ && scan_pos <= end_pos_)
                                             ? blend_pixels_[scan_pos - start_pos_]
-                                            : RGBA8BPixel::TRANSPARENT(),
+                                            : AlphaBlendPixel::TRANSPARENT(),
                          .end_of_frame = scan_pos >= size};
 }
 

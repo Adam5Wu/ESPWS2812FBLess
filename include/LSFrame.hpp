@@ -15,10 +15,8 @@ namespace zw_esp8266::lightshow {
 struct PixelWithStatus {
   union {
     RGB888 rgb;
-    RGBA8888 rgba;
-
     RGB8BPixel pixel;
-    RGBA8BPixel blend_pixel;
+    AlphaBlendPixel blend_pixel;
   };
   bool end_of_frame;
 };
@@ -196,7 +194,7 @@ class BlendedColorDotFrame : public ColorDotFrame {
 
  private:
   StripSizeType start_pos_, end_pos_;
-  std::vector<RGBA8BPixel> blend_pixels_;
+  std::vector<AlphaBlendPixel> blend_pixels_;
 };
 
 }  // namespace zw_esp8266::lightshow

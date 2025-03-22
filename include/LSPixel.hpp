@@ -7,9 +7,6 @@
 
 #include "sdkconfig.h"
 
-// Whether to avoid division for alpha-blending
-#define ALPHABLEND_WITH_DIV 0
-
 namespace zw_esp8266::lightshow {
 
 using RGB8BFlatType = uint8_t[3];
@@ -150,7 +147,30 @@ union RGBA8888 {
   operator const RGB888&() const { return *reinterpret_cast<const RGB888*>(this); }
 };
 
-// An RGB 8-bit pixel data with a 8-bit alpha channel
+// Implements optimized 8-bit alpha multiplication for blending
+//
+// Algorithm from https://arxiv.org/pdf/2202.02864:
+// When x in [0,255]:
+//   x*a / 255 ~= (x * (a|a<<8) + 0x8080) / (256*256)
+//
+// My own extension for diff blending where x can be in [-255,-1]:
+//   x*a / 255 ~= (x * (a|a<<8) + 0x7F7F) / (256*256)
+// Verified for the entire range of -x*a, where {-x,a} in [0,255],
+// this produced identical results to: (-x*a) / (double)255 + 0.5
+//
+// To help understand the algorithm, the idea is
+//   x/255 = (x + x/255) / 256 ~= (x + x/256 + delta) / 256
+//
+// Parameters:
+//   x: must have range [-255, 255]
+//   a: must have range [0, 255]
+//
+// Results are in range [-255, 255]
+inline int16_t Fast8BDiffAlphaPremult(int32_t x, uint16_t a) {
+  return x ? ((x * ((a << 8) | a) + (x > 0 ? 0x8080 : 0x7F7F)) >> 16) : 0;
+}
+
+// An RGB 8-bit pixel data with an 8-bit alpha channel
 // The alpha channel specifies the transparency, allowing the pixel to "blend" with the background.
 struct RGBA8BPixel {
   using _this = RGBA8BPixel;
@@ -179,60 +199,164 @@ struct RGBA8BPixel {
   static constexpr _this TRANSPARENT(const RGB888& in = RGB8BPixel::BLACK()) { return {in, 0x00}; }
   static constexpr _this SOLID(const RGB888& in) { return {in, UINT8_MAX}; }
 
-  // Why pre-multiplied alpha blending is not used:
-  //
-  // Pre-multiplied alpha blending works by *separately* computing the overlay pixels
-  // and the blend background and combine them together. However, since each rounding
-  // occurs at computation, the combined data may have off-by-1 rounding errors.
-  //
-  // On a regular display the pixel responds to values linearly, so 0x01 looks almost
-  // indistinguishable from 0x00 or 0x02; but LDE strips responds very differently.
-  // 0x00, 0x01 and 0x02 produces vastly different luminosity. So, off-by-one rounding
-  // errors will show up as very visible defects.
-  //
-  // // Perform optimized alpha multiplication.
-  // // Note that the return value only has valid RGB data (the A channel is cleared).
-  // inline RGBA8888 AlphaMult() const {
-  //   uint32_t br = abgr & 0xFF00FF;
-  //   br = (br * a) + 0x800080;
-  //   br += (br >> 8) & 0xFF00FF;
-  //   uint32_t xg = (abgr >> 8) & 0xFF00FF;
-  //   xg = (xg * a) + 0x800080;
-  //   xg += (xg >> 8) & 0xFF00FF;
-  //   return RGBA8888{.abgr = ((br >> 8) & 0xFF00FF) | (xg & 0xFF00)};
-  // }
+  inline RGB888 Blend(const RGB888& bg) const {
+    if (IsTransparent()) return bg;
+    if (IsSolid()) return *reinterpret_cast<const RGB888*>(this);
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    return {(uint8_t)(bg.r + Fast8BDiffAlphaPremult((int32_t)r - bg.r, a)),
+            (uint8_t)(bg.g + Fast8BDiffAlphaPremult((int32_t)g - bg.g, a)),
+            (uint8_t)(bg.b + Fast8BDiffAlphaPremult((int32_t)b - bg.b, a))};
+#else
+    return {(uint8_t)(bg.r + (int32_t)((r - bg.r) * a + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(bg.g + (int32_t)((g - bg.g) * a + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(bg.b + (int32_t)((b - bg.b) * a + (UINT8_MAX >> 1)) / UINT8_MAX)};
+#endif
+  }
+};
+
+// An RGB 8-bit premultiplied pixel data with an 8-bit complementary alpha channel
+struct RGB8BBlendPixel {
+  using _this = RGB8BBlendPixel;
+
+  union {
+    RGBA8B_LAYOUT(pr, pg, pb, ca)
+  };
+
+  RGB8BBlendPixel() = default;
+  RGB8BBlendPixel(const RGBA8BPixel& in) { *this = in; }
+  _this& operator=(const RGBA8BPixel& in) { return precompute(in.r, in.g, in.b, in.a), *this; }
+
+  inline bool IsTransparent() const { return ca == UINT8_MAX; }
+  inline bool IsSolid() const { return ca == 0; }
+
+  static const _this TRANSPARENT(const RGB888& in = RGB8BPixel::BLACK()) { return {{in, 0x00}}; }
+  static const _this SOLID(const RGB888& in) { return {{in, UINT8_MAX}}; }
+
+  void precompute(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t a8) {
+    ca = UINT8_MAX - a8;
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    pr = Fast8BDiffAlphaPremult(r8, a8);
+    pg = Fast8BDiffAlphaPremult(g8, a8);
+    pb = Fast8BDiffAlphaPremult(b8, a8);
+#else
+    pr = ((int16_t)r8 * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pg = ((int16_t)g8 * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pb = ((int16_t)b8 * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+#endif
+  }
 
   inline RGB888 Blend(const RGB888& bg) const {
     if (IsTransparent()) return bg;
     if (IsSolid()) return *reinterpret_cast<const RGB888*>(this);
 
-#if ALPHABLEND_WITH_DIV
-    return {(uint8_t)(bg.r + (int32_t)((r - bg.r) * a) / UINT8_MAX),
-            (uint8_t)(bg.g + (int32_t)((g - bg.g) * a) / UINT8_MAX),
-            (uint8_t)(bg.b + (int32_t)((b - bg.b) * a) / UINT8_MAX)};
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    return {(uint8_t)(pr + Fast8BDiffAlphaPremult(bg.r, ca)),
+            (uint8_t)(pg + Fast8BDiffAlphaPremult(bg.g, ca)),
+            (uint8_t)(pb + Fast8BDiffAlphaPremult(bg.b, ca))};
 #else
-
-// from + (to - from)*alpha / 255
-// x/255 = (x + x/255) / 256 ~= (x + x/256) / 256
-#define ALPHABLEND_NO_DIV(store, from, to, alpha) \
-  {                                               \
-    int32_t mult = (int32_t)(to - from) * alpha;  \
-    store = from + ((mult + (mult >> 8)) >> 8);   \
-  }
-
-    RGB888 result;
-    ALPHABLEND_NO_DIV(result.r, bg.r, r, a)
-    ALPHABLEND_NO_DIV(result.g, bg.g, g, a)
-    ALPHABLEND_NO_DIV(result.b, bg.b, b, a)
-    return result;
-
-#undef ALPHABLEND_NO_DIV
-
-#endif  // ALPHABLEND_WITH_DIV
+    return {(uint8_t)(pr + ((uint16_t)bg.r * ca + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(pg + ((uint16_t)bg.g * ca + (UINT8_MAX >> 1)) / UINT8_MAX),
+            (uint8_t)(pb + ((uint16_t)bg.b * ca + (UINT8_MAX >> 1)) / UINT8_MAX)};
+#endif
   }
 };
 
 #undef RGBA8B_LAYOUT
+
+// Implements optimized alpha multiplication with 10-bit return for blending
+//
+// Why the 2 extra bits in the return?
+//
+// Pre-multiplied alpha blending works by *separately* computing the overlay pixels
+// and the blend background and combine them together. However, since each rounding
+// occurs at computation, the combined data may have off-by-1 rounding errors.
+//
+// On a regular display the pixel responds to values linearly, so 0x01 looks almost
+// indistinguishable from 0x00 or 0x02; but LDE strips responds very differently.
+// 0x00, 0x01 and 0x02 produces vastly different luminosity. So, off-by-one rounding
+// errors will show up as very visible defects.
+//
+// My extended algorithm based on https://arxiv.org/pdf/2202.02864.
+// When x in [0,255]:
+//   (4x*a)/255 ~= (x * (a>>6|a<<2|a<<10) + 0x8080) / (256*256)
+// Verified for the entire range of x*a, where {x,a} in [0,255],
+// this produced identical results to: (4x*a) / (double)255 + 0.5
+//
+// Parameters:
+//   x: must have range [0, 255]
+//   a: must have range [0, 255]
+//
+// Results are in range [0, 1023]
+inline uint16_t FastAlphaPremult10B(uint32_t x, uint32_t a) {
+  return x ? ((x * ((a << 10) | (a << 2) | (a >> 6)) + 0x8080) >> 16) : 0;
+}
+
+// An RGB 10-bit premultiplied pixel data with an 8-bit complementary alpha channel
+struct RGB10BBlendPixel {
+  using _this = RGB10BBlendPixel;
+
+  union {
+    struct {
+      uint32_t pr10 : 10;
+      uint32_t pg10 : 10;
+      uint32_t pb10 : 10;
+      uint32_t _ : 2;
+    };
+    uint32_t rgb10;
+  };
+  uint8_t ca;
+
+  RGB10BBlendPixel() = default;
+  RGB10BBlendPixel(const RGBA8BPixel& in) { *this = in; }
+  _this& operator=(const RGBA8BPixel& in) { return precompute(in.r, in.g, in.b, in.a), *this; }
+
+  inline bool IsTransparent() const { return ca == UINT8_MAX; }
+  inline bool IsSolid() const { return ca == 0; }
+
+  static const _this TRANSPARENT(const RGB888& in = RGB8BPixel::BLACK()) { return {{in, 0x00}}; }
+  static const _this SOLID(const RGB888& in) { return {{in, UINT8_MAX}}; }
+
+  void precompute(uint8_t r8, uint8_t g8, uint8_t b8, uint8_t a8) {
+    ca = UINT8_MAX - a8;
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    pr10 = FastAlphaPremult10B(r8, a8);
+    pg10 = FastAlphaPremult10B(g8, a8);
+    pb10 = FastAlphaPremult10B(b8, a8);
+#else
+    pr10 = (((int32_t)r8 << 2) * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pg10 = (((int32_t)g8 << 2) * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+    pb10 = (((int32_t)b8 << 2) * a8 + (UINT8_MAX >> 1)) / UINT8_MAX;
+#endif
+  }
+
+  inline RGB888 Blend(const RGB888& bg) const {
+    if (IsTransparent()) return bg;
+    if (IsSolid()) return {(uint8_t)(pr10 >> 2), (uint8_t)(pg10 >> 2), (uint8_t)(pb10 >> 2)};
+
+#ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
+    return {(uint8_t)((pr10 + FastAlphaPremult10B(bg.r, ca)) >> 2),
+            (uint8_t)((pg10 + FastAlphaPremult10B(bg.g, ca)) >> 2),
+            (uint8_t)((pb10 + FastAlphaPremult10B(bg.b, ca)) >> 2)};
+#else
+    return {(uint8_t)((pr10 + (((uint32_t)bg.r << 2) * ca) / UINT8_MAX + 2) >> 2),
+            (uint8_t)((pg10 + (((uint32_t)bg.g << 2) * ca) / UINT8_MAX + 2) >> 2),
+            (uint8_t)((pb10 + (((uint32_t)bg.b << 2) * ca) / UINT8_MAX + 2) >> 2)};
+#endif
+  }
+};
+
+#if defined(CONFIG_ESP2812FBLESS_ALPHA_BLEND_STRAIGHT)
+using AlphaBlendPixel = RGBA8BPixel;
+#elif defined(CONFIG_ESP2812FBLESS_ALPHA_BLEND_PREMULT_10B)
+using AlphaBlendPixel = RGB10BBlendPixel;
+#elif defined(CONFIG_ESP2812FBLESS_ALPHA_BLEND_PREMULT_8B)
+using AlphaBlendPixel = RGB8BBlendPixel;
+#else
+#error Unsupported alpha blending mode!
+#endif
 
 }  // namespace zw_esp8266::lightshow
 

@@ -73,7 +73,7 @@ inline constexpr uint32_t BLEND_MAX_VAL = UINT32_MAX >> PGRS_PRECISION;
 
 inline uint32_t blend_value(uint32_t from, uint32_t to, ProgressionType pgrs) {
   assert((from <= BLEND_MAX_VAL) && (to <= BLEND_MAX_VAL) && (pgrs <= PGRS_DENOM));
-  return from + (((int32_t)(to - from) * pgrs) >> PGRS_PRECISION);
+  return from + (((int32_t)(to - from) * pgrs + ((PGRS_DENOM - 1) >> 1)) >> PGRS_PRECISION);
 }
 
 }  // namespace zw_esp8266::lightshow
