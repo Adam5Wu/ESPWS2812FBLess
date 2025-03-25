@@ -37,8 +37,8 @@ class Frame {
   enum class FrameType {
     kUniformColor,
     kBlender,
-    kComputedColorDot,
-    kBlendedColorDot,
+    kColorDot,
+    kWiper,
   };
   // Get the type of the frame (works with `-fno-rtti`).
   virtual FrameType Type() const = 0;
@@ -116,13 +116,14 @@ class UniformColorFrame : public Frame {
   }
 
 #ifndef NDEBUG
-  std::string DebugString() const override {
-    return "UniformColor: " + std::to_string(color.r) + ", " + std::to_string(color.g) + ", " +
-           std::to_string(color.b);
-  }
+  std::string DebugString() const override { return "UniformColor: " + to_string(color); }
 #endif
 };
 
+// A dot is a pixel drawn on a certain position of a strip.
+//
+// |------------------====*====----------------|
+//  ^--- start  glow---^  ^--- dot     end ---^
 struct DotState {
   RGB888 color;
   // "Glow" of the dot in 1/10 of a pixels.
@@ -132,69 +133,136 @@ struct DotState {
   // Non-zero glow will add to the dot's total "size", which is rendered
   // using a ~3.16-sigma gaussian distribution (i.e. sigma ~= size/6.32).
   uint8_t glow;
-  // Position of the object in the strip measured by progression (12-bit),
-  // where 0 is the beginning of the strip and 4096 is the end.
-  // The dot will be rendered at the center, hance its "glows" will be
-  // cut-off when it is near the ends of the strip.
+  // Position of the dot on the strip measured by progression (12-bit),
+  // where 0 is the beginning of the strip and PGRS_FULL is the end.
+  // The dot will be rendered *at its center*, hence its "glows" will be
+  // cut-off when it is near the ends of the strip, but the dot itself
+  // will always be on the strip.
   ProgressionType pos_pgrs;
 };
 
+// An abstract frame for rendering a color dot.
 class ColorDotFrame : public Frame {
  public:
   const DotState dot;
-
- protected:
-  ColorDotFrame(StripSizeType strip_size, const DotState& dot) : Frame(strip_size), dot(dot) {}
-};
-
-// A frame that displays a colored dot.
-// The dot pixels are rendered by real-time floating point arithmetics.
-class ComputedColorDotFrame : public ColorDotFrame {
- public:
   const RGB888 bgcolor;
 
-  ComputedColorDotFrame(StripSizeType strip_size, const DotState& dot, RGB888 bgcolor);
+  ColorDotFrame(StripSizeType strip_size, const DotState& dot, RGB888 bgcolor);
 
-  FrameType Type() const override { return FrameType::kComputedColorDot; }
+  FrameType Type() const override { return FrameType::kColorDot; }
   PixelWithStatus GetPixelData() override;
 
 #ifndef NDEBUG
   std::string DebugString() const override {
-    return "ComputedColorDot[" + std::to_string(dot.glow / 10 + 1) + "." +
-           std::to_string(dot.glow % 10) + "]: " + std::to_string(dot.color.r) + ", " +
-           std::to_string(dot.color.g) + ", " + std::to_string(dot.color.b) +
-           " @ PGRS=" + std::to_string(dot.pos_pgrs);
+    return "ColorDot[" + std::to_string(dot.glow / 10 + 1) + "." + std::to_string(dot.glow % 10) +
+           "@" + std::to_string(dot.pos_pgrs) + "]: " + to_string(dot.color) +
+           "; bg=" + to_string(bgcolor);
   }
 #endif
 
- private:
+ protected:
+  // The real position of the dot on the strip
+  float dot_pos_;
+  // The number of pixels of a half dot (including glow)
+  float half_dot_size_;
+  // The range of pixels on the strip affected by the dot
   StripSizeType start_pos_, end_pos_;
-  float dot_pos_;        // The real position of the dot on the strip
-  float two_sigma_sqr_;  // Deterministic component of the Gaussian PDF exponent
+  // Deterministic component of the Gaussian PDF exponent
+  float two_sigma_sqr_;
 };
 
-// A frame that displays a colored dot.
-// The dot are pre-computed RGBA8BBlenderPixel for more efficient rendering.
-class BlendedColorDotFrame : public ColorDotFrame {
- public:
-  BlendedColorDotFrame(StripSizeType strip_size, const DotState& dot);
+// A "wiper" separates a strip into three parts: left, right, and in between them a
+// predefined width of transitional interval, aka. the "wiper blade".
+//
+// |-------------========--------------------|
+//  ^--- start    ^--- wiper blade   end ---^
+struct WiperProp {
+  // The color of the blade, and to its left and right.
+  // The alpha channel allows expression of translucency, hence a "dot" can
+  // be expressed as having a solid `color` and transparent `l_color` and `r_color`.
+  RGBA8888 color, l_color, r_color;
+  // Width of the wiper blade, expressed as the portion of the strip length.
+  // A 1 means the blade's width is equal to the entire strip.
+  // Note that the width *could* be larger than 1, in which case a part of the
+  // wiper could occupy the entire strip, depending on the position.
+  float width;
+};
 
-  FrameType Type() const override { return FrameType::kBlendedColorDot; }
+struct WiperState : WiperProp {
+  // Position of the wiper on the strip measured by progression (12-bit).
+  // *Different from the dot*, the wiper position accounts for the blade width.
+  // So, 0 means:
+  //             =======|------------------------------|
+  // wiper blade ---^    ^--- strip start      end ---^
+  // And PGRS_FULL means:
+  //                    |------------------------------|=======
+  //                     ^--- strip start      end ---^    ^--- wiper blade
+  ProgressionType pos_pgrs;
+};
+
+// An abstract frame for rendering a wiper.
+class WiperFrame : public Frame {
+ public:
+  const WiperState wiper;
+
+  // This callback determines how the blade part is rendered.
+  // - The input is a progression value denoting the position on the blade.
+  //   0 is the left edge and PGRS_FULL is the right.
+  // - The return is also a progression for computing the pixel:
+  //   * If the current position (i.e. input) is <= PGRS_MIDWAY, the pixel
+  //     will be value-blended (all 4 channels) between `l_color` and `color`,
+  //     where 0 means all `l_color` and PGRS_FULL means all `color`;
+  //   * Otherwise, value-blend between `r_color` and `color`, where 0 means
+  //     all `r_color` and PGRS_FULL means all `color`;
+  using BladeGenerator = ProgressionType (*)(ProgressionType);
+
+  WiperFrame(StripSizeType strip_size, const WiperState& wiper, BladeGenerator blade_func);
+
+  FrameType Type() const override { return FrameType::kWiper; }
   bool IsTranslucent() const override { return true; }
   PixelWithStatus GetPixelData() override;
 
 #ifndef NDEBUG
   std::string DebugString() const override {
-    return "BlendedColorDot[" + std::to_string(dot.glow / 10 + 1) + "." +
-           std::to_string(dot.glow % 10) + "]: " + std::to_string(dot.color.r) + ", " +
-           std::to_string(dot.color.g) + ", " + std::to_string(dot.color.b) +
-           " @ PGRS=" + std::to_string(dot.pos_pgrs);
+    return "Wiper[" + std::to_string(uint16_t(wiper.width * 100)) + "%@" +
+           std::to_string(wiper.pos_pgrs) + "]: " + to_string(wiper.color) +
+           "; l=" + to_string(wiper.l_color) + "; r=" + to_string(wiper.r_color);
   }
 #endif
 
+ protected:
+  const BladeGenerator blade_func_;
+  // The real position of the wiper blade *center* on the strip
+  // Note that this can go off the strip (e.g. negative, or > strip size)
+  float blade_center_;
+  // The number of pixels of a half blade
+  float half_blade_size_;
+  // The range of pixels on the strip affected by the blade
+  // Why they are not of type `StripSizeType`? When blade position is at the extremes
+  // (blade moved off-strip), we could have negative positions!
+  int16_t start_pos_, end_pos_;
+
+  // Return the pixel on the blade at given position.
+  virtual AlphaBlendPixel GetBladePixel(StripSizeType idx) const = 0;
+};
+
+class ComputedWiperFrame : public WiperFrame {
+ public:
+  ComputedWiperFrame(StripSizeType strip_size, const WiperState& wiper, BladeGenerator blade_func)
+      : WiperFrame(strip_size, wiper, blade_func) {}
+
+ protected:
+  AlphaBlendPixel GetBladePixel(StripSizeType idx) const override;
+};
+
+class CachedWiperFrame : public ComputedWiperFrame {
+ public:
+  CachedWiperFrame(StripSizeType strip_size, const WiperState& wiper, BladeGenerator blade_func);
+
  private:
-  StripSizeType start_pos_, end_pos_;
   std::vector<AlphaBlendPixel> blend_pixels_;
+
+  AlphaBlendPixel GetBladePixel(StripSizeType idx) const override;
 };
 
 }  // namespace zw_esp8266::lightshow

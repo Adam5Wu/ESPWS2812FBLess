@@ -27,25 +27,60 @@ namespace {
 inline constexpr char TAG[] = "Main";
 namespace LS = ::zw_esp8266::lightshow;
 
-inline constexpr LS::StripSizeType STRIP_SIZE = 108;
+inline constexpr LS::StripSizeType STRIP_SIZE = 800;
 inline constexpr uint8_t TARGET_FPS = 80;
 // inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CLASSIC();
 inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
-// inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CUSTOM(320, 45, 270);
+// inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CUSTOM(320, 40, 270);
 
 inline constexpr uint16_t RENDER_TASK_STACK = 1200;
 inline constexpr UBaseType_t RENDER_TASK_PRIORITY = 10;
+
+void _lightshow_driver_stats() {
+  LS::IOStats stats = LS::DriverStats();
+  uint32_t duration_ms = std::max(1U, (uint32_t)(esp_timer_get_time() - stats.start_time) / 1000);
+  uint16_t fps10x = stats.frames_rendered * 100 / (duration_ms / 100);
+  ESP_LOGI(TAG, "Rendered %d frames in %d ms (%d.%d fps)", stats.frames_rendered, duration_ms,
+           fps10x / 10, fps10x % 10);
+  ESP_LOGI(TAG, "Underflow occurred in %d frames, and there were %d near-misses",
+           stats.underflow_actual, stats.underflow_near_miss);
+  uint16_t idle_pml = stats.idle_wait / duration_ms;
+  ESP_LOGI(TAG, "Driver idle waited %d ms (%d.%d%%) and busy waited %d ms", stats.idle_wait / 1000,
+           idle_pml / 10, idle_pml % 10, stats.busy_wait / 1000);
+#if ISR_DEVELOPMENT
+  ESP_LOGI(TAG, "ISR data serving latency (us): [%d, %d]",
+           stats.isr_process_latency_low / g_esp_ticks_per_us,
+           stats.isr_process_latency_high / g_esp_ticks_per_us);
+#endif
+}
+
+void _lightshow_wait_for_finish(const LS::Renderer& renderer, int& target_idx) {
+  while (true) {
+    auto events =
+        renderer.WaitFor(LS::RENDERER_START_TARGET | LS::RENDERER_IDLE_TARGET, portMAX_DELAY);
+    if (events & LS::RENDERER_IDLE_TARGET) break;
+    ESP_LOGI(TAG, "Target #%d was reached", ++target_idx);
+  }
+  _lightshow_driver_stats();
+  ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
+           uxTaskGetStackHighWaterMark(NULL));
+}
 
 esp_err_t _lightshow() {
   ESP_LOGI(TAG, "Creating LightShow renderer...");
   ASSIGN_OR_RETURN(auto renderer, LS::Renderer::Create(STRIP_SIZE, TARGET_FPS));
 
   // You can pre-program transitions before starting the driver
-  ESP_LOGI(TAG, "Adding some LightShow targets...");
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x32, 0x00, 0x00})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x00, 0x16, 0x32})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x16, 0x32, 0x08})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(1000, {0x00, 0x02, 0x01})));
+  int target_idx = 0;
+  ESP_LOGI(TAG, "Test uniform color LightShow targets...");
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(1000, {0x32, 0x00, 0x00})));
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(1000, {0x00, 0x16, 0x32})));
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(1000, {0x16, 0x32, 0x08})));
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(1000, {0x00, 0x02, 0x01})));
 
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));
@@ -75,93 +110,137 @@ esp_err_t _lightshow() {
   vTaskDelay(CONFIG_FREERTOS_HZ / 2);
 
   // You can also add additional transitions after driver starts
-  ESP_LOGI(TAG, "Adding computed color dot LightShow targets...");
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+  ESP_LOGI(TAG, "Test realtime computed color dot LightShow targets...");
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(LS::ColorDotTarget::Create(
       4000, {.color = {0x08, 0x16, 0x32}, .glow = 50, .pos_pgrs = LS::PGRS(0.3)},
       LS::DotState{.color = {0x00, 0x02, 0x01}, .glow = 50, .pos_pgrs = 0})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(LS::ColorDotTarget::Create(
       5000, {.color = {0x32, 0x08, 0x16}, .glow = 30, .pos_pgrs = LS::PGRS(1)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(LS::ColorDotTarget::Create(
       3000, {.color = {0x16, 0x32, 0x08}, .glow = 80, .pos_pgrs = LS::PGRS(0.25)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(LS::ColorDotTarget::Create(
       2000, {.color = {0x00, 0x24, 0x00}, .glow = 30, .pos_pgrs = LS::PGRS(0.1)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::ComputedColorDotTarget::Create(
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(LS::ColorDotTarget::Create(
       2000, {.color = {0x08, 0x00, 0x24}, .glow = 15, .pos_pgrs = LS::PGRS(0)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(200, {0x08, 0x24, 0x16})));
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(200, {0x08, 0x24, 0x16})));
+  // Wait for all targets have been reached
+  _lightshow_wait_for_finish(*renderer, target_idx);
 
-  // Here is how to wait for the targets
-  int target_idx = 0;
-  while (true) {
-    auto events =
-        renderer->WaitFor(LS::RENDERER_START_TARGET | LS::RENDERER_IDLE_TARGET, portMAX_DELAY);
-    if (events & LS::RENDERER_IDLE_TARGET) break;
-    ESP_LOGI(TAG, "Target #%d was reached", ++target_idx);
-  }
-
-  {
-    LS::IOStats stats = LS::DriverStats();
-    uint32_t duration_ms = std::max(1U, (uint32_t)(esp_timer_get_time() - stats.start_time) / 1000);
-    uint16_t fps10x = stats.frames_rendered * 100 / (duration_ms / 100);
-    ESP_LOGI(TAG, "Rendered %d frames in %d ms (%d.%d fps)", stats.frames_rendered, duration_ms,
-             fps10x / 10, fps10x % 10);
-    ESP_LOGI(TAG, "Underflow occurred in %d frames, and there were %d near-misses",
-             stats.underflow_actual, stats.underflow_near_miss);
-    uint16_t idle_pml = stats.idle_wait / duration_ms;
-    ESP_LOGI(TAG, "Driver idle waited %d ms (%d.%d%%) and busy waited %d ms",
-             stats.idle_wait / 1000, idle_pml / 10, idle_pml % 10, stats.busy_wait / 1000);
-#if ISR_DEVELOPMENT
-    ESP_LOGI(TAG, "ISR data serving latency (us): [%d, %d]",
-             stats.isr_process_latency_low / g_esp_ticks_per_us,
-             stats.isr_process_latency_high / g_esp_ticks_per_us);
-#endif
-  }
-
-  // You can even add additional transitions after all previous targets completed for a while
+  // You can add additional transitions after all previous targets completed for a while
   vTaskDelay(CONFIG_FREERTOS_HZ / 2);
 
-  ESP_LOGI(TAG, "Adding blended color dot LightShow targets...");
-  LS::DriverStats();  // Since the driver is already running, reset its stats for better accuracy.
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
-      4000, {.color = {0x08, 0x16, 0x32}, .glow = 50, .pos_pgrs = LS::PGRS(0.3)},
-      LS::DotState{.color = {0x00, 0x02, 0x01}, .glow = 50, .pos_pgrs = 0})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
-      5000, {.color = {0x32, 0x08, 0x16}, .glow = 30, .pos_pgrs = LS::PGRS(1)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
-      3000, {.color = {0x16, 0x32, 0x08}, .glow = 80, .pos_pgrs = LS::PGRS(0.25)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
-      2000, {.color = {0x00, 0x24, 0x00}, .glow = 30, .pos_pgrs = LS::PGRS(0.1)})));
-  ESP_RETURN_ON_ERROR(renderer->Enqueue(LS::BlendedColorDotTarget::Create(
-      2000, {.color = {0x08, 0x00, 0x24}, .glow = 15, .pos_pgrs = LS::PGRS(0)})));
+  // Wiper targets testing
+  LS::WiperTarget::Config wiper_config;
 
-  // For for completion again
-  while (true) {
-    auto events =
-        renderer->WaitFor(LS::RENDERER_START_TARGET | LS::RENDERER_IDLE_TARGET, portMAX_DELAY);
-    if (events & LS::RENDERER_IDLE_TARGET) break;
-    ESP_LOGI(TAG, "Target #%d was reached", ++target_idx);
-  }
+  ESP_LOGI(TAG,
+           "Test realtime computed spot wipe targets...\n"
+           "----------------------------------------------------------------");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  wiper_config = LS::WiperTarget::SpotWipeConfig(0.05, {0x24, 0x08, 0x16},
+                                                 LS::WiperTarget::Direction::LeftToRight);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Realtime;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(8000, wiper_config));
+  wiper_config = LS::WiperTarget::SpotWipeConfig(0.1, {0x16, 0x08, 0x24},
+                                                 LS::WiperTarget::Direction::RightToLeft);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Realtime;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
 
-  {
-    LS::IOStats stats = LS::DriverStats();
-    uint32_t duration_ms = std::max(1U, (uint32_t)(esp_timer_get_time() - stats.start_time) / 1000);
-    uint16_t fps10x = stats.frames_rendered * 100 / (duration_ms / 100);
-    ESP_LOGI(TAG, "Rendered %d frames in %d ms (%d.%d fps)", stats.frames_rendered, duration_ms,
-             fps10x / 10, fps10x % 10);
-    ESP_LOGI(TAG, "Underflow occurred in %d frames, and there were %d near-misses",
-             stats.underflow_actual, stats.underflow_near_miss);
-    uint16_t idle_pml = stats.idle_wait / duration_ms;
-    ESP_LOGI(TAG, "Driver idle waited %d ms (%d.%d%%) and busy waited %d ms",
-             stats.idle_wait / 1000, idle_pml / 10, idle_pml % 10, stats.busy_wait / 1000);
-#if ISR_DEVELOPMENT
-    ESP_LOGI(TAG, "ISR data serving latency (us): [%d, %d]",
-             stats.isr_process_latency_low / g_esp_ticks_per_us,
-             stats.isr_process_latency_high / g_esp_ticks_per_us);
-#endif
-  }
+  ESP_LOGI(TAG,
+           "Test precomputed spot wipe targets...\n"
+           "----------------------------------------------------------------");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  wiper_config = LS::WiperTarget::SpotWipeConfig(0.05, {0x24, 0x08, 0x16},
+                                                 LS::WiperTarget::Direction::LeftToRight);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(8000, wiper_config));
+  wiper_config = LS::WiperTarget::SpotWipeConfig(0.1, {0x16, 0x08, 0x24},
+                                                 LS::WiperTarget::Direction::RightToLeft);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
 
-  ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
-           uxTaskGetStackHighWaterMark(NULL));
+  ESP_LOGI(TAG,
+           "Test realtime computed dot wipe targets...\n"
+           "----------------------------------------------------------------");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  wiper_config = LS::WiperTarget::DotWipeConfig(0.05, {0x24, 0x08, 0x16},
+                                                LS::WiperTarget::Direction::LeftToRight);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Realtime;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(8000, wiper_config));
+  wiper_config = LS::WiperTarget::DotWipeConfig(0.1, {0x16, 0x08, 0x24},
+                                                LS::WiperTarget::Direction::RightToLeft);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Realtime;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
+  ESP_LOGI(TAG,
+           "Test precomputed dot wipe targets...\n"
+           "----------------------------------------------------------------");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  wiper_config = LS::WiperTarget::DotWipeConfig(0.05, {0x24, 0x08, 0x16},
+                                                LS::WiperTarget::Direction::LeftToRight);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(8000, wiper_config));
+  wiper_config = LS::WiperTarget::DotWipeConfig(0.1, {0x16, 0x08, 0x24},
+                                                LS::WiperTarget::Direction::RightToLeft);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
+  ESP_LOGI(TAG,
+           "Test realtime computed color wipe targets...\n"
+           "----------------------------------------------------------------");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  wiper_config = LS::WiperTarget::ColorWipeConfig(0.15, {0x00, 0x08, 0x32},
+                                                  LS::WiperTarget::Direction::LeftToRight);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Realtime;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(8000, wiper_config));
+  wiper_config = LS::WiperTarget::ColorWipeConfig(0.20, {0x32, 0x08, 0x00},
+                                                  LS::WiperTarget::Direction::RightToLeft);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Realtime;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
+  ESP_LOGI(TAG,
+           "Test precomputed color wipe targets...\n"
+           "----------------------------------------------------------------");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  wiper_config = LS::WiperTarget::ColorWipeConfig(0.15, {0x00, 0x08, 0x32},
+                                                  LS::WiperTarget::Direction::LeftToRight);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(8000, wiper_config));
+  wiper_config = LS::WiperTarget::ColorWipeConfig(0.20, {0x32, 0x08, 0x00},
+                                                  LS::WiperTarget::Direction::RightToLeft);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
+  // Finishing up the show
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, LS::RGB8BPixel::BLACK())));
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
   ESP_LOGI(TAG, "Stopping LightShow driver...");
   // Stops the rendering task and interrupts
   // Does not release jitter buffer, so `DriverStart()` can be called again.

@@ -120,7 +120,7 @@ Frame* Renderer::RenderFrame() {
         ProgressionType pgrs = progression(time_passed, cur_target.duration_us);
         auto new_frame_ = cur_target.RenderFrame(pgrs);
 
-        if (pgrs == PGRS_DENOM) {
+        if (pgrs == PGRS_FULL) {
           // This is the last frame, if it is not translucent no blending needed.
           if (blender_frame_ == nullptr || !new_frame_->IsTranslucent()) {
             base_frame_ = std::move(new_frame_);
