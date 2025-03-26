@@ -168,17 +168,28 @@ The rendering APIs reflect the aforementioned concepts:
 1. `Renderer::Enqueue()` allows you to compose a "light show" by adding a sequence of "targets";
 2. "Targets" are abstract concepts, which corresponds to the `Target` abstract class:
    - All targets *must* have a common concept of `duration` (in $\mu$s);
-   - Two `Target` implementations are provided in the "stock" implementation:
+   - Three `Target` implementations are provided in the "stock" implementation:
      - `UniformColorTarget`: Displays a single color across the entire strip;
      - `ColorDotTarget`: Displays a color dot at a certain position on the strip.
-       - There are two variants:
-         - `ComputedColorDotTarget`: produces dot pixels data at realtime, using floating point
-           arithmetics. It is serves as a technical feasibility demonstration, as well as a
-           computationally expensive transition, good for creating frame underflow and near-misses
-           which can help determining the reset timing characteristics of an LED strip.
-         - `BlendedColorDotTarget`: a much less demanding implementation that produces the same
-           visual transition, using pre-computed dot pixels with translucency (alpha channel),
-           and leverages the render's frame blending capability.
+       - This is a technical feasibility demonstration of producing pixels data at realtime using
+         floating point arithmetics. It also doubles as a "frame underflow generator" to help
+         [determining the best reset time](#driver-interface).
+     - `WiperTarget`: Displays a "wipe" effect, in either direction.
+       - A "wiper" separates the strip into three segments: "left", "blade" and "right". Each
+         segment can be rendered differently:
+         - The "left" and "right" segment could be assigned a separate color with an alpha channel,
+           hence they can be either a solid color, a translucent overlay on the existing background,
+           or completely transparent;
+         - The "blade" segment is usually rendered as a transition between the "left" and "right".
+           The exact color progression is controlled by a customizable function.
+         - Hence a "wiper" can be considered as a more generalized "dot":
+           - It can render a similar effect to the "dot" by setting both "left" and "right" side
+             transparent, and render the blade using an Gaussian function;
+           - It can also render a "color wipe" effect, replacing the existing content of the strip
+             with a uniform color with a smooth "swipe".
+           - The rendering can be done either in realtime or pre-computed, controlled by a parameter.
+             The default is pre-computed. When the "blade" size gets large (>15 pixels @ 80Mhz),
+             pre-computed rendering is the only way to achieve smooth effect.
    - You could implement additional targets that perform fancier transitions.
 3. When the renderer runs the transition, it will:
    - Invoke `Target::RenderInit()` at the start of the transition, providing a `Frame` as the

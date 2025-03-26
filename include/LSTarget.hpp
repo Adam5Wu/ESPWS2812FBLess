@@ -75,58 +75,72 @@ class UniformColorTarget : public Target {
 };
 
 // A target that displays a (moving and glowing) colored dot.
+// Render each pixel of the dot using real-time floating point arithmetics.
+//
+// Note that this implementation is just a demonstration of technical possibility, as well as
+// a utility to generate a small amount to frame underflow to help determining proper reset times.
+// For the best effect, the pixel data produced by complex computations should be pre-computed.
 class ColorDotTarget : public Target {
  public:
   const DotState dot;
 
-  static esp_err_t ValidateDots(DotState dot, std::optional<DotState> def_dot);
-  
-  void BaseFrameInit(const Frame* base_frame);
-  DotState CurrentDotState(ProgressionType pgrs) const;
+  static DataOrError<std::unique_ptr<Target>> Create(
+      uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
+
+  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
+  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
 
  protected:
   // If provided, will be used as base_dot if the base_frame is not a `ColorDotFrame`.
   // (Otherwise, will start with a hard-coded default dot, see `RenderInit()`.)
   const std::optional<DotState> def_dot_;
+  RGB888 bg_color_;
   DotState base_dot_;
 
   ColorDotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
       : Target(duration_us), dot(dot), def_dot_(def_dot) {}
+
+  static esp_err_t ValidateDots(DotState dot, std::optional<DotState> def_dot);
+  DotState CurrentDotState(ProgressionType pgrs) const;
 };
 
-// Render each pixel of the dot using real-time floating point arithmetics
-// Note that there are more efficient ways to produce pixels data, see `BlendedColorDotTarget`.
-// This implementation is just a demonstration of technical possibility, and doubles as a
-// utility to help determining proper reset times.
-class ComputedColorDotTarget : public ColorDotTarget {
+// A target that displays wiper effect.
+class WiperTarget : public Target {
  public:
-  static DataOrError<std::unique_ptr<Target>> Create(
-      uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
+  enum class Direction {
+    LeftToRight,  // From the beginning of the strip towards the end.
+    RightToLeft,  // From the end of the strip towards the beginning.
+  };
+  enum class RenderMethod {
+    Realtime,
+    Precomputed,
+  };
+  struct Config : WiperProp {
+    WiperFrame::BladeGenerator blade_gen;
+    Direction dir;
+    RenderMethod render_method = RenderMethod::Precomputed;
+  };
 
-  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
+  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, const Config& config);
+
+  // Render the wiper as a "dot", rendered using Gaussian PDF between [-3.3,3.3].
+  static Config DotWipeConfig(float width, RGB888 color, Direction dir);
+
+  // Render the wiper as a "spot", rendered using mirrored exponential curve between [-3.3,0].
+  // Note that due to the exponential "spike" at the center, if the blade width is small
+  // the overall luminosity will decrease significantly when the blade moves in between pixels.
+  static Config SpotWipeConfig(float width, RGB888 color, Direction dir);
+
+  // Render the wiper as a "wipe", from the base frame to a uniform color.
+  // The transition is rendered using logistic curve between [-3.3, 3.3].
+  static Config ColorWipeConfig(float width, RGB888 color, Direction dir);
+
   std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
 
  protected:
-  RGB888 bg_color_;
+  const Config config_;
 
-  ComputedColorDotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
-      : ColorDotTarget(duration_us, dot, def_dot) {}
-};
-
-// Pre-compute the dot pixels as `RGBA8BBlendPixel` for more efficient rendering.
-class BlendedColorDotTarget : public ColorDotTarget {
- public:
-  static DataOrError<std::unique_ptr<Target>> Create(
-      uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
-
-  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
-
- protected:
-  RGB888 bg_color_;
-
-  BlendedColorDotTarget(uint32_t duration_us, DotState dot, std::optional<DotState> def_dot)
-      : ColorDotTarget(duration_us, dot, def_dot) {}
+  WiperTarget(uint32_t duration_us, const Config& config) : Target(duration_us), config_(config) {}
 };
 
 }  // namespace zw_esp8266::lightshow

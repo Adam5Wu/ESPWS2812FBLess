@@ -64,23 +64,28 @@ struct RGB8BPixel {
   static constexpr _this WHITE() { return {0xFF, 0xFF, 0xFF}; }
 };
 
-#define RGB8B_UNION_TYPEDEF(name, c1, c2, c3)                \
-  union name {                                               \
-    RGB8B_LAYOUT(c1, c2, c3)                                 \
-    inline name& operator=(const RGB8BPixel& in) {           \
-      return c1 = in.c1, c2 = in.c2, c3 = in.c3, *this;      \
-    }                                                        \
-  };                                                         \
-  inline bool operator==(const name& lhs, const name& rhs) { \
-    uint32_t lhv = 0, rhv = 0;                               \
-    reinterpret_cast<name&>(lhv) = lhs;                      \
-    reinterpret_cast<name&>(rhv) = rhs;                      \
-    return lhv == rhv;                                       \
-  }                                                          \
+#define RGB8B_UNION_TYPEDEF(name, c1, c2, c3)                       \
+  union name {                                                      \
+    RGB8B_LAYOUT(c1, c2, c3)                                        \
+    inline name& operator=(const RGB8BPixel& in) {                  \
+      return c1 = in.c1, c2 = in.c2, c3 = in.c3, *this;             \
+    }                                                               \
+  };                                                                \
+  inline bool operator==(const name& lhs, const name& rhs) {        \
+    /* Optimized for little endian */                               \
+    return (*reinterpret_cast<const uint32_t*>(&lhs) & 0xFFFFFF) == \
+           (*reinterpret_cast<const uint32_t*>(&rhs) & 0xFFFFFF);   \
+  }                                                                 \
   inline bool operator!=(const name& lhs, const name& rhs) { return !(lhs == rhs); }
 
 RGB8B_LAYOUT_MAP(RGB8B_UNION_TYPEDEF)
 #undef RGB8B_UNION_TYPEDEF
+
+inline std::string to_string(const RGB888& in) {
+  std::string ret(10, ' ');
+  snprintf(&ret.front(), 11, "RGB:%02X%02X%02X", in.r, in.g, in.b);
+  return ret;
+}
 
 //---------------------------------------------
 // RGB8BPixel Implementations
@@ -145,7 +150,17 @@ union RGBA8888 {
 
   operator RGB888&() { return *reinterpret_cast<RGB888*>(this); }
   operator const RGB888&() const { return *reinterpret_cast<const RGB888*>(this); }
+  RGBA8888& operator=(const RGB888& in) {
+    // Optimized for little endian
+    return (abgr = *reinterpret_cast<const uint32_t*>(&in) & 0xFFFFFF), *this;
+  }
 };
+
+inline std::string to_string(const RGBA8888& in) {
+  std::string ret(13, ' ');
+  snprintf(&ret.front(), 14, "RGBA:%02X%02X%02X%02X", in.r, in.g, in.b, in.a);
+  return ret;
+}
 
 // Implements optimized 8-bit alpha multiplication for blending
 //
@@ -216,6 +231,7 @@ struct RGBA8BPixel {
 };
 
 // An RGB 8-bit premultiplied pixel data with an 8-bit complementary alpha channel
+// Note: may generate visible defects when at low values. See `RGB10BBlendPixel` below.
 struct RGB8BBlendPixel {
   using _this = RGB8BBlendPixel;
 
@@ -337,13 +353,14 @@ struct RGB10BBlendPixel {
     if (IsSolid()) return {(uint8_t)(pr10 >> 2), (uint8_t)(pg10 >> 2), (uint8_t)(pb10 >> 2)};
 
 #ifdef CONFIG_ESP2812FBLESS_ALPHA_BLEND_NO_DIV
-    return {(uint8_t)((pr10 + FastAlphaPremult10B(bg.r, ca)) >> 2),
-            (uint8_t)((pg10 + FastAlphaPremult10B(bg.g, ca)) >> 2),
-            (uint8_t)((pb10 + FastAlphaPremult10B(bg.b, ca)) >> 2)};
+    return {(uint8_t)((pr10 + FastAlphaPremult10B(bg.r, ca) + 1) >> 2),
+            (uint8_t)((pg10 + FastAlphaPremult10B(bg.g, ca) + 1) >> 2),
+            (uint8_t)((pb10 + FastAlphaPremult10B(bg.b, ca) + 1) >> 2)};
 #else
-    return {(uint8_t)((pr10 + (((uint32_t)bg.r << 2) * ca) / UINT8_MAX + 2) >> 2),
-            (uint8_t)((pg10 + (((uint32_t)bg.g << 2) * ca) / UINT8_MAX + 2) >> 2),
-            (uint8_t)((pb10 + (((uint32_t)bg.b << 2) * ca) / UINT8_MAX + 2) >> 2)};
+    return {
+        (uint8_t)((pr10 + (((uint32_t)bg.r << 2) * ca + (UINT8_MAX >> 1)) / UINT8_MAX + 1) >> 2),
+        (uint8_t)((pg10 + (((uint32_t)bg.g << 2) * ca + (UINT8_MAX >> 1)) / UINT8_MAX + 1) >> 2),
+        (uint8_t)((pb10 + (((uint32_t)bg.b << 2) * ca + (UINT8_MAX >> 1)) / UINT8_MAX + 1) >> 2)};
 #endif
   }
 };

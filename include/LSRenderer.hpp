@@ -52,7 +52,8 @@ class Renderer {
   void Enqueue(std::unique_ptr<Target> target, bool drop_ongoing = false);
 
   // Short-hand Enqueue for easy cascading from target creation.
-  esp_err_t Enqueue(DataOrError<std::unique_ptr<Target>>&& target, bool drop_ongoing = false) {
+  esp_err_t EnqueueOrError(DataOrError<std::unique_ptr<Target>>&& target,
+                           bool drop_ongoing = false) {
     if (!target) return target.error();
     Enqueue(std::move(*target), drop_ongoing);
     return ESP_OK;
@@ -71,7 +72,7 @@ class Renderer {
 
   // Wait for any ephemeral event to occur.
   // The events are triggered right before the processing happen
-  EventBits_t WaitFor(EventBits_t events, TickType_t timeout) {
+  EventBits_t WaitFor(EventBits_t events, TickType_t timeout) const {
     return xEventGroupWaitBits(events_, events, true, false, timeout);
   }
 
@@ -83,7 +84,7 @@ class Renderer {
  private:
   const uint32_t frame_interval_us_;
   SemaphoreHandle_t target_lock_;
-  EventGroupHandle_t events_;
+  mutable EventGroupHandle_t events_;
   std::unique_ptr<Frame> base_frame_;
 
   BlenderFrame* blender_frame_ = nullptr;

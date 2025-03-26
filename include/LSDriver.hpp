@@ -100,7 +100,7 @@ inline IOConfig CONFIG_WS2812_CUSTOM(uint16_t std_reset_us, uint16_t min_reset_u
   return config;
 }
 // The newer WS2812 revision has a >300us reset time
-inline IOConfig CONFIG_WS2812_NEW() { return CONFIG_WS2812_CUSTOM(320, 45); }
+inline IOConfig CONFIG_WS2812_NEW() { return CONFIG_WS2812_CUSTOM(320, 40); }
 
 struct IOStats {
   // Timestamp of the last "refresh" of the counters

@@ -64,28 +64,27 @@ PixelWithStatus BlenderFrame::GetPixelData() {
 }
 
 //------------------------------------
-// ComputedColorDotFrame Implementations
+// ColorDotFrame Implementations
 
-ComputedColorDotFrame::ComputedColorDotFrame(StripSizeType strip_size, const DotState& dot,
-                                             RGB888 bgcolor)
-    : ColorDotFrame(strip_size, dot), bgcolor(bgcolor) {
-  dot_pos_ = (float)(size - 1) * dot.pos_pgrs / PGRS_DENOM;
+ColorDotFrame::ColorDotFrame(StripSizeType strip_size, const DotState& dot, RGB888 bgcolor)
+    : Frame(strip_size), dot(dot), bgcolor(bgcolor) {
+  dot_pos_ = (float)(size - 1) * dot.pos_pgrs / PGRS_FULL + 0.5;
+  half_dot_size_ = ((float)dot.glow / 10 + 1) / 2;
+  start_pos_ = std::max((int32_t)std::floor(dot_pos_ - half_dot_size_), 0);
+  end_pos_ = std::min((int32_t)std::ceil(dot_pos_ + half_dot_size_), size - 1);
 
-  float half_dot_size = ((float)dot.glow / 10 + 1) / 2;
-  start_pos_ = std::max((int32_t)std::lroundf(dot_pos_ - half_dot_size), 0);
-  end_pos_ = std::min((int32_t)std::lroundf(dot_pos_ + half_dot_size), size - 1);
   // half-dot-size ~= x*sigma
   // 2*sigma^2 = 2*(half-dot-size)^2/x^2 = (half-dot-size)^2/(x^2/2)
   // When x=3, x^2/2 = 4.5; when x^2/2 = 5, x ~= 3.16
-  two_sigma_sqr_ = half_dot_size * half_dot_size / 5;
+  two_sigma_sqr_ = half_dot_size_ * half_dot_size_ / 5;
 }
 
-PixelWithStatus ComputedColorDotFrame::GetPixelData() {
+PixelWithStatus ColorDotFrame::GetPixelData() {
   StripSizeType scan_pos = index_++;
   if (scan_pos >= start_pos_ && scan_pos <= end_pos_) {
     PixelWithStatus result = {};
     float x = dot_pos_ - scan_pos;
-    ProgressionType pgrs = std::exp(-x * x / two_sigma_sqr_) * PGRS_DENOM + 0.5;
+    ProgressionType pgrs = std::exp(-x * x / two_sigma_sqr_) * PGRS_FULL + 0.5;
     result.pixel.r = blend_value(bgcolor.r, dot.color.r, pgrs);
     result.pixel.g = blend_value(bgcolor.g, dot.color.g, pgrs);
     result.pixel.b = blend_value(bgcolor.b, dot.color.b, pgrs);
@@ -96,35 +95,83 @@ PixelWithStatus ComputedColorDotFrame::GetPixelData() {
 }
 
 //------------------------------------
-// BlendedColorDotFrame Implementations
+// WiperFrame Implementations
 
-BlendedColorDotFrame::BlendedColorDotFrame(StripSizeType strip_size, const DotState& dot)
-    : ColorDotFrame(strip_size, dot) {
-  float dot_pos_ = (float)(size - 1) * dot.pos_pgrs / PGRS_DENOM;
+WiperFrame::WiperFrame(StripSizeType strip_size, const WiperState& wiper, BladeGenerator blade_func)
+    : Frame(strip_size), wiper(wiper), blade_func_(blade_func) {
+  float blade_size = strip_size * wiper.width;
+  half_blade_size_ = blade_size / 2;
+  // ======blade======|--strip--|======blade======
+  // center--^  -2 -1 0 1 2 ...          ^--center
+  //         |<---- blade pos range ---->|
+  // Since #0 is actually the first (valid) pixel, we want the blade center
+  // position at 0.0 to fall right *before* it, not at the center of pixel #0
+  //          ... | pixel -1 | pixel 0 | pixel 1 | ...
+  // Blade center pos 0.0 ---^
+  blade_center_ = ((size + blade_size) * wiper.pos_pgrs / PGRS_FULL) - half_blade_size_ - 0.5;
+  start_pos_ = std::max((int32_t)std::ceil(blade_center_ - half_blade_size_), 0);
+  end_pos_ = std::min((int32_t)std::floor(blade_center_ + half_blade_size_), size - 1);
+}
 
-  float half_dot_size = ((float)dot.glow / 10 + 1) / 2;
-  start_pos_ = std::max((int32_t)std::lroundf(dot_pos_ - half_dot_size), 0);
-  end_pos_ = std::min((int32_t)std::lroundf(dot_pos_ + half_dot_size), size - 1);
-  // half-dot-size ~= x*sigma
-  // 2*sigma^2 = 2*(half-dot-size)^2/x^2 = (half-dot-size)^2/(x^2/2)
-  // When x=3, x^2/2 = 4.5; when x^2/2 = 5, x ~= 3.16
-  float two_sigma_sqr_ = half_dot_size * half_dot_size / 5;
+PixelWithStatus WiperFrame::GetPixelData() {
+  StripSizeType scan_pos = index_++;
+  return PixelWithStatus{
+      .blend_pixel = (scan_pos >= start_pos_ && scan_pos <= end_pos_)
+                         ? GetBladePixel(scan_pos)
+                         : AlphaBlendPixel{(scan_pos < start_pos_) ? wiper.l_color : wiper.r_color},
+      .end_of_frame = scan_pos >= size};
+}
 
+//------------------------------------
+// ComputedWiperFrame Implementations
+
+AlphaBlendPixel ComputedWiperFrame::GetBladePixel(StripSizeType idx) const {
+  // ==|======*========------
+  // l    ^   c
+  // If c = 6.1 and half-blade size (h) = 7.2
+  // When scan_pos (p) = 3
+  // - The blade-left is at c-h = -1.1
+  // - The on-blade position is p-c+h = 4.1
+  //
+  // |----======*======------
+  //      l   ^ c
+  // If c = 9.6 and half-blade size (h) = 5.5
+  // When scan_pos (p) = 9
+  // - The blade-left is at c-h = 4.1
+  // - The on-blade position is p-c+h = 4.9
+  float on_blade_pos = idx - blade_center_ + half_blade_size_;
+  ProgressionType on_blade_pgrs = on_blade_pos * PGRS_MIDWAY / half_blade_size_;
+  ProgressionType color_pgrs = blade_func_(on_blade_pgrs);
+
+  RGBA8888 result = wiper.color;
+  const RGBA8888 color_from = (on_blade_pgrs < PGRS_MIDWAY) ? wiper.l_color : wiper.r_color;
+  if ((RGB888)color_from != (RGB888)wiper.color) {
+    result.r = blend_value(color_from.r, wiper.color.r, color_pgrs);
+    result.g = blend_value(color_from.g, wiper.color.g, color_pgrs);
+    result.b = blend_value(color_from.b, wiper.color.b, color_pgrs);
+  }
+  result.a = (uint8_t)blend_value(color_from.a, wiper.color.a, color_pgrs);
+  ESP_LOGD(TAG, "%d: From %s, to %s, pgrs %d = %s", on_blade_pgrs, to_string(color_from).c_str(),
+           to_string(wiper.color).c_str(), color_pgrs, to_string(result).c_str());
+  return {result};
+}
+
+//------------------------------------
+// CachedWiperFrame Implementations
+
+CachedWiperFrame::CachedWiperFrame(StripSizeType strip_size, const WiperState& wiper,
+                                   BladeGenerator blade_func)
+    : ComputedWiperFrame(strip_size, wiper, blade_func) {
   // Pre-compute the pixel data
   blend_pixels_.resize(end_pos_ - start_pos_ + 1);
+
   for (StripSizeType i = start_pos_; i <= end_pos_; ++i) {
-    float x = dot_pos_ - i;
-    uint8_t alpha = std::exp(-x * x / two_sigma_sqr_) * UINT8_MAX + 0.5;
-    blend_pixels_[(i - start_pos_)] = RGBA8BPixel(dot.color, alpha);
+    blend_pixels_[(i - start_pos_)] = ComputedWiperFrame::GetBladePixel(i);
   }
 }
 
-PixelWithStatus BlendedColorDotFrame::GetPixelData() {
-  StripSizeType scan_pos = index_++;
-  return PixelWithStatus{.blend_pixel = (scan_pos >= start_pos_ && scan_pos <= end_pos_)
-                                            ? blend_pixels_[scan_pos - start_pos_]
-                                            : AlphaBlendPixel::TRANSPARENT(),
-                         .end_of_frame = scan_pos >= size};
+AlphaBlendPixel CachedWiperFrame::GetBladePixel(StripSizeType idx) const {
+  return blend_pixels_[idx - start_pos_];
 }
 
 }  // namespace zw_esp8266::lightshow

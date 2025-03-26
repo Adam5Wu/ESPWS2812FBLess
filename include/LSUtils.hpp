@@ -44,15 +44,17 @@ using ProgressionType = uint16_t;
 
 inline constexpr uint8_t PGRS_PRECISION = 12;
 inline constexpr uint8_t PGRS_DIVNUM_FACTOR = 6;
-inline constexpr uint32_t PGRS_MAX_DIVNUM = UINT32_MAX >> (PGRS_DIVNUM_FACTOR);
+inline constexpr uint32_t PGRS_MAX_DIVNUM = UINT32_MAX >> PGRS_DIVNUM_FACTOR;
 inline constexpr uint8_t PGRS_DENUM_FACTOR = PGRS_PRECISION - PGRS_DIVNUM_FACTOR;
-inline constexpr uint32_t PGRS_MIN_DIVISOR = 1U << (PGRS_DENUM_FACTOR);
+inline constexpr uint32_t PGRS_MIN_DIVISOR = 1U << PGRS_DENUM_FACTOR;
 inline constexpr uint32_t PGRS_DENOM = 1U << PGRS_PRECISION;
+inline constexpr ProgressionType PGRS_FULL = PGRS_DENOM;
+inline constexpr ProgressionType PGRS_MIDWAY = PGRS_FULL >> 1;
 
-constexpr ProgressionType PGRS(float frac) { return PGRS_DENOM * frac; }
+constexpr ProgressionType PGRS(float frac) { return frac * PGRS_FULL; }
 
 inline ProgressionType progression(uint32_t cur, uint32_t total) {
-  if (cur >= total) return PGRS_DENOM;
+  if (cur >= total) return PGRS_FULL;
   if (total > PGRS_MIN_DIVISOR) {
     assert(cur <= PGRS_MAX_DIVNUM);
     return (cur << PGRS_DIVNUM_FACTOR) / (total >> PGRS_DENUM_FACTOR);
@@ -64,16 +66,16 @@ inline ProgressionType progression(uint32_t cur, uint32_t total) {
 inline constexpr uint8_t ALPHA_PRECISION = 8;
 
 inline uint8_t pgrs_to_alpha(ProgressionType pgrs) {
-  assert(pgrs <= PGRS_DENOM);
+  assert(pgrs <= PGRS_FULL);
   return ((uint32_t)pgrs * UINT8_MAX) >> PGRS_PRECISION;
 }
 
 // Blend two values using the above approx-permillage value.
-inline constexpr uint32_t BLEND_MAX_VAL = UINT32_MAX >> PGRS_PRECISION;
+inline constexpr uint32_t BLEND_MAX_VAL = UINT32_MAX >> (PGRS_PRECISION + 1);
 
 inline uint32_t blend_value(uint32_t from, uint32_t to, ProgressionType pgrs) {
-  assert((from <= BLEND_MAX_VAL) && (to <= BLEND_MAX_VAL) && (pgrs <= PGRS_DENOM));
-  return from + (((int32_t)(to - from) * pgrs + ((PGRS_DENOM - 1) >> 1)) >> PGRS_PRECISION);
+  assert((from <= BLEND_MAX_VAL) && (to <= BLEND_MAX_VAL) && (pgrs <= PGRS_FULL));
+  return from + ((((int32_t)to - from) * pgrs + PGRS_MIDWAY) >> PGRS_PRECISION);
 }
 
 }  // namespace zw_esp8266::lightshow
