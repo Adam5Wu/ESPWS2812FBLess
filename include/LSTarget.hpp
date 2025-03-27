@@ -143,6 +143,49 @@ class WiperTarget : public Target {
   WiperTarget(uint32_t duration_us, const Config& config) : Target(duration_us), config_(config) {}
 };
 
+// A target that displays RGB color wheel.
+class RGBColorWheelTarget : public Target {
+ public:
+  struct Config : ColorWheelProp {
+    ProgressionType wheel_from, wheel_to;
+    ProgressionType intensity = PGRS_FULL;
+    RGBColorWheelFrame::WheelGenerator wheel_gen = pgrs_map_exponential;
+  };
+
+  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, const Config& config);
+
+  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
+  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+
+ protected:
+  const Config config_;
+  ProgressionType intensity_from_;
+
+  RGBColorWheelTarget(uint32_t duration_us, const Config& config)
+      : Target(duration_us), config_(config) {}
+};
+
+// A target that displays HSV color wheel.
+class HSVColorWheelTarget : public Target {
+ public:
+  struct Config : ColorWheelProp {
+    ProgressionType wheel_from, wheel_to;
+    ProgressionType intensity = PGRS_FULL;
+  };
+
+  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, const Config& config);
+
+  std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
+  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+
+ protected:
+  const Config config_;
+  ProgressionType intensity_from_;
+
+  HSVColorWheelTarget(uint32_t duration_us, const Config& config)
+      : Target(duration_us), config_(config) {}
+};
+
 }  // namespace zw_esp8266::lightshow
 
 #endif  // ZWESP8266_LSTARGET

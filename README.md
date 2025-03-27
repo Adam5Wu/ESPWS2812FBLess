@@ -20,7 +20,7 @@ A full frame buffer is technically not really necessary, because the processor i
 pixel data faster than the LEDs can consume.
 
 According to the WS2812 data sheet, each bit is represented as two signal levels spanning an average
-of 1.25$\mu$s (microseconds). Hence a 24-bit RGB pixel takes 30$\mu$s to transfer. ESP8266 is capable
+of 1.25&mu;s (microseconds). Hence a 24-bit RGB pixel takes 30&mu;s to transfer. ESP8266 is capable
 of running at 160Mhz, which means that for every pixel transferred, the CPU could run 4800 cycles.
 
 Let's assume 4000 instructions can be executed during that time. So as long as a pixel's data takes
@@ -33,9 +33,9 @@ concurrently, so not all cycles are available for pixel data generation.
 
 And to make matters worse, sometimes a high-priority task (such as WiFi tasks, or other interrupts)
 can occupy the CPU for a prolonged period of time without releasing, thereby "starving" the pixel
-generation task. Adding salt to the injury, WS2812 operates with very strict timing: a 50$\mu$s
+generation task. Adding salt to the injury, WS2812 operates with very strict timing: a 50&mu;s
 quiescence is interpreted as a "reset". So if the pixel generation task is preempted for more than
-50$\mu$s, the LEDs will interpret subsequently produced pixels as "start from the beginning" --
+50&mu;s, the LEDs will interpret subsequently produced pixels as "start from the beginning" --
 and that is the common cause of "flickering": pixels displayed at wrong locations.
 
 As a result, even if each pixel only requires a few hundreds, or even less instructions to produce,
@@ -47,8 +47,8 @@ So, some amount of buffering is still needed -- just not as excessive as bufferi
 preemption interval we anticipate.
 
 For example, it is reported that on ESP8266 the worst scheduling jitter is produced by the WiFi
-sub-system, with magnitudes up to 800us. Therefore, we can use a 1200$\mu$s budget to comfortably
-absorb scheduling jitters. And since each WS2812 pixel takes 30$\mu$s to transfer, the scheduling
+sub-system, with magnitudes up to 800us. Therefore, we can use a 1200&mu;s budget to comfortably
+absorb scheduling jitters. And since each WS2812 pixel takes 30&mu;s to transfer, the scheduling
 jitter budget translates to a buffer of 40 pixels. So, if the strip is under 40 pixels, we buffer
 the entire frame; but for strips more than 40 pixels, regardless of 50, 300, or 1000 pixels, we
 always only need a *40 pixel buffer*!
@@ -167,8 +167,8 @@ The rendering APIs reflect the aforementioned concepts:
 
 1. `Renderer::Enqueue()` allows you to compose a "light show" by adding a sequence of "targets";
 2. "Targets" are abstract concepts, which corresponds to the `Target` abstract class:
-   - All targets *must* have a common concept of `duration` (in $\mu$s);
-   - Three `Target` implementations are provided in the "stock" implementation:
+   - All targets *must* have a common concept of `duration` (in &mu;s);
+   - Five `Target` implementations are provided in the "stock" implementation:
      - `UniformColorTarget`: Displays a single color across the entire strip;
      - `ColorDotTarget`: Displays a color dot at a certain position on the strip.
        - This is a technical feasibility demonstration of producing pixels data at realtime using
@@ -190,6 +190,12 @@ The rendering APIs reflect the aforementioned concepts:
            - The rendering can be done either in realtime or pre-computed, controlled by a parameter.
              The default is pre-computed. When the "blade" size gets large (>15 pixels @ 80Mhz),
              pre-computed rendering is the only way to achieve smooth effect.
+      - Two "color wheel" targets are implemented:
+        - `RGBColorWheelTarget` displays a rotating "wheel" of red, green and blue, blended across
+          the entire strip. The three colors, are spread evenly on the wheel (aka. "out-of-phase");
+        - `HSVColorWheelTarget` displays a rotating "wheel" of hues across the entire strip. The
+          effect is similar to the RGB color wheel, just to demonstrate the capability of operating
+          in an alternative color space.
    - You could implement additional targets that perform fancier transitions.
 3. When the renderer runs the transition, it will:
    - Invoke `Target::RenderInit()` at the start of the transition, providing a `Frame` as the

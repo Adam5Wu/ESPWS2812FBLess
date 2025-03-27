@@ -39,6 +39,8 @@ class Frame {
     kBlender,
     kColorDot,
     kWiper,
+    kRGBColorWheel,
+    kHSVColorWheel,
   };
   // Get the type of the frame (works with `-fno-rtti`).
   virtual FrameType Type() const = 0;
@@ -231,7 +233,7 @@ class WiperFrame : public Frame {
 #endif
 
  protected:
-  const BladeGenerator blade_func_;
+  const BladeGenerator gen_func_;
   // The real position of the wiper blade *center* on the strip
   // Note that this can go off the strip (e.g. negative, or > strip size)
   float blade_center_;
@@ -263,6 +265,83 @@ class CachedWiperFrame : public ComputedWiperFrame {
   std::vector<AlphaBlendPixel> blend_pixels_;
 
   AlphaBlendPixel GetBladePixel(StripSizeType idx) const override;
+};
+
+struct ColorWheelProp {
+  // Perimeter of the color wheel in pixels.
+  // Note that the width *could* be larger than the strip size, in which case
+  // only a part of the wheel can be displayed on the strip at a time.
+  StripSizeType width;
+};
+
+struct ColorWheelState : ColorWheelProp {
+  // The color wheel's origin (on its perimeter) measured by progression (12-bit).
+  // Note that regardless of the value a color wheel frame will always fill
+  // the entire strip. The difference is only which pixel shows what color.
+  ProgressionType pos_pgrs;
+  // The intensity of the color wheel
+  ProgressionType intensity;
+};
+
+// RGB color wheel.
+// Each color component is spaced evenly "out-of-phase" on the wheel.
+class RGBColorWheelFrame : public Frame {
+ public:
+  const ColorWheelState state;
+
+  // This callback determines how the wheel "spins".
+  // - The input is a progression value denoting distance the wheel travels
+  //   from its starting point.
+  // - The return is also a progression for computing the color component value.
+  using WheelGenerator = ProgressionType (*)(ProgressionType);
+
+  RGBColorWheelFrame(StripSizeType strip_size, const ColorWheelState& state,
+                     WheelGenerator wheel_func);
+
+  FrameType Type() const override { return FrameType::kRGBColorWheel; }
+  bool IsTranslucent() const override { return false; }
+  PixelWithStatus GetPixelData() override;
+
+#ifndef NDEBUG
+  std::string DebugString() const override {
+    return "RGBColorWheel[" + std::to_string(state.width) + "]@" + std::to_string(state.pos_pgrs);
+  }
+#endif
+
+ protected:
+  const WheelGenerator gen_func_;
+  // The precomputed pixel data of the wheel
+  // Its size is the smaller of "wheel width" and strip size.
+  std::vector<RGB888> wheel_pixels_;
+
+  // Return the pixel on the wheel at given position.
+  RGB888 GetWheelPixel(float wheel_pos) const;
+};
+
+// HSV color wheel.
+class HSVColorWheelFrame : public Frame {
+ public:
+  const ColorWheelState state;
+
+  HSVColorWheelFrame(StripSizeType strip_size, const ColorWheelState& state);
+
+  FrameType Type() const override { return FrameType::kHSVColorWheel; }
+  bool IsTranslucent() const override { return false; }
+  PixelWithStatus GetPixelData() override;
+
+#ifndef NDEBUG
+  std::string DebugString() const override {
+    return "HSVColorWheel[" + std::to_string(state.width) + "]@" + std::to_string(state.pos_pgrs);
+  }
+#endif
+
+ protected:
+  // The precomputed pixel data of the wheel
+  // Its size is the smaller of "wheel width" and strip size.
+  std::vector<RGB888> wheel_pixels_;
+
+  // Return the pixel on the wheel at given position.
+  RGB888 GetWheelPixel(float wheel_pos) const;
 };
 
 }  // namespace zw_esp8266::lightshow

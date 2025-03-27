@@ -2,6 +2,7 @@
 #ifndef ZWESP8266_LSUTILS
 #define ZWESP8266_LSUTILS
 
+#include <cmath>
 #include <algorithm>
 #include <variant>
 
@@ -49,7 +50,7 @@ inline constexpr uint8_t PGRS_DENUM_FACTOR = PGRS_PRECISION - PGRS_DIVNUM_FACTOR
 inline constexpr uint32_t PGRS_MIN_DIVISOR = 1U << PGRS_DENUM_FACTOR;
 inline constexpr uint32_t PGRS_DENOM = 1U << PGRS_PRECISION;
 inline constexpr ProgressionType PGRS_FULL = PGRS_DENOM;
-inline constexpr ProgressionType PGRS_MIDWAY = PGRS_FULL >> 1;
+inline constexpr ProgressionType PGRS_MIDWAY = (PGRS_FULL - 1) >> 1;
 
 constexpr ProgressionType PGRS(float frac) { return frac * PGRS_FULL; }
 
@@ -76,6 +77,33 @@ inline constexpr uint32_t BLEND_MAX_VAL = UINT32_MAX >> (PGRS_PRECISION + 1);
 inline uint32_t blend_value(uint32_t from, uint32_t to, ProgressionType pgrs) {
   assert((from <= BLEND_MAX_VAL) && (to <= BLEND_MAX_VAL) && (pgrs <= PGRS_FULL));
   return from + ((((int32_t)to - from) * pgrs + PGRS_MIDWAY) >> PGRS_PRECISION);
+}
+
+// Map a progression value to a Gaussian probability
+// Formula: e^(-x^2/2) curve between [-3.16, 3.16]
+inline ProgressionType pgrs_map_gaussian(ProgressionType pgrs) {
+  // x = 3.16 * rx ==> -x^2/2 = -10 * rx^2 / 2 = -5 * rx^2
+  float rx = (float)((int16_t)pgrs - PGRS_MIDWAY) / PGRS_MIDWAY;
+  return std::exp(rx * rx * -5.0F) * PGRS_FULL;
+}
+
+// Map a progression value to a symmetrical exponential rise and decay
+// Formula: mirrored e^x curve between [-5.3, 0]
+inline ProgressionType pgrs_map_exponential(ProgressionType pgrs) {
+  float x = -5.3F * (float)std::abs((int16_t)pgrs - PGRS_MIDWAY) / PGRS_MIDWAY;
+  return std::exp(x) * PGRS_FULL;
+}
+
+// Map a progression value to a symmetrical sigmoid rise and decay
+// Formula: mirrored 2/(1+e^(-x)) curve between [-5.3, 0]
+inline ProgressionType pgrs_map_sigmoid(ProgressionType pgrs) {
+  float x = 5.3F * (float)std::abs((int16_t)pgrs - PGRS_MIDWAY) / PGRS_MIDWAY;
+  return 2.0F / (1.0F + std::exp(x)) * PGRS_FULL;
+}
+
+// Map a progression value to a symmetrical saw-tooth rise and decay
+inline ProgressionType pgrs_map_sawtooth(ProgressionType pgrs) {
+  return ((pgrs <= PGRS_MIDWAY) ? pgrs : PGRS_FULL - pgrs) << 1;
 }
 
 }  // namespace zw_esp8266::lightshow
