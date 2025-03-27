@@ -1,7 +1,6 @@
 #include "LSTarget.hpp"
 
 #include <memory>
-#include <cmath>
 
 #include "esp_log.h"
 
@@ -15,27 +14,6 @@ namespace zw_esp8266::lightshow {
 namespace {
 
 inline constexpr char TAG[] = "LSTarget";
-
-// Gaussian "dot": e^(-x^2/2) curve between [-3.16, 3.16]
-ProgressionType wiper_blade_gen_dot_(ProgressionType pgrs) {
-  // x = 3.16 * rx ==> -x^2/2 = -10 * rx^2 / 2 = -5 * rx^2
-  float rx = (float)((int16_t)pgrs - PGRS_MIDWAY) / PGRS_MIDWAY;
-  return std::exp(rx * rx * -5.0F) * PGRS_FULL;
-}
-
-// Exponential "spot": mirrored e^x curve between [-5.3, 0]
-ProgressionType wiper_blade_gen_spot_(ProgressionType pgrs) {
-  float x = -5.3F * (float)std::abs((int16_t)pgrs - PGRS_MIDWAY) / PGRS_MIDWAY;
-  return std::exp(x) * PGRS_FULL;
-}
-
-// Sigmoid "wave": mirrored 2/(1+e^(-x)) curve between [-5.3, 0]
-// Note that this is not a complete wave because the blend color is swapped at x = 0
-// Effectively we are "fading back" to a new color.
-ProgressionType wiper_blade_gen_wave_(ProgressionType pgrs) {
-  float x = 5.3F * (float)std::abs((int16_t)pgrs - PGRS_MIDWAY) / PGRS_MIDWAY;
-  return 2.0F / (1.0F + std::exp(x)) * PGRS_FULL;
-}
 
 }  // namespace
 
@@ -78,7 +56,7 @@ DataOrError<std::unique_ptr<Target>> ColorDotTarget::Create(uint32_t duration_ms
 }
 
 std::unique_ptr<Frame> ColorDotTarget::RenderInit(std::unique_ptr<Frame> base_frame) {
-  frame_size_ = base_frame->size;
+  base_frame = Target::RenderInit(std::move(base_frame));
   switch (base_frame->Type()) {
     case Frame::FrameType::kUniformColor:
       bg_color_ = static_cast<const UniformColorFrame&>(*base_frame).color;
@@ -151,7 +129,7 @@ WiperTarget::Config WiperTarget::DotWipeConfig(float width, RGB888 color, Direct
           .r_color = RGBA8BPixel::TRANSPARENT(),
           .width = width,
       },
-      .blade_gen = wiper_blade_gen_dot_,
+      .blade_gen = pgrs_map_gaussian,
       .dir = dir,
   };
 }
@@ -164,7 +142,7 @@ WiperTarget::Config WiperTarget::SpotWipeConfig(float width, RGB888 color, Direc
           .r_color = RGBA8BPixel::TRANSPARENT(color),
           .width = width,
       },
-      .blade_gen = wiper_blade_gen_spot_,
+      .blade_gen = pgrs_map_exponential,
       .dir = dir,
   };
 }
@@ -179,9 +157,86 @@ WiperTarget::Config WiperTarget::ColorWipeConfig(float width, RGB888 color, Dire
                                                      : RGBA8BPixel::SOLID(color),
           .width = width,
       },
-      .blade_gen = wiper_blade_gen_wave_,
+      .blade_gen = pgrs_map_sigmoid,
       .dir = dir,
   };
 }
 
+//------------------------------------
+// RGBColorWheelTarget
+
+DataOrError<std::unique_ptr<Target>> RGBColorWheelTarget::Create(uint32_t duration_ms,
+                                                                 const Config& config) {
+  ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
+  if (config.width < 1) {
+    ESP_LOGW(TAG, "Invalid wheel width");
+    return ESP_ERR_INVALID_ARG;
+  }
+  return std::unique_ptr<Target>(new RGBColorWheelTarget(duration_us, config));
+}
+
+std::unique_ptr<Frame> RGBColorWheelTarget::RenderInit(std::unique_ptr<Frame> base_frame) {
+  base_frame = Target::RenderInit(std::move(base_frame));
+  if (base_frame->Type() == Frame::FrameType::kRGBColorWheel) {
+    auto& wheel_frame = static_cast<const RGBColorWheelFrame&>(*base_frame);
+    if (wheel_frame.state.width == config_.width &&
+        (wheel_frame.state.pos_pgrs & (PGRS_DENOM - 1)) ==
+            (config_.wheel_from & (PGRS_DENOM - 1))) {
+      // This is just a continuation of a previous color wheel, no need to blend.
+      intensity_from_ = wheel_frame.state.intensity;
+      return nullptr;
+    }
+  }
+  // Not a continuation from a previous color wheel.
+  intensity_from_ = config_.intensity;
+  return std::move(base_frame);
+}
+
+std::unique_ptr<Frame> RGBColorWheelTarget::RenderFrame(ProgressionType pgrs) {
+  ColorWheelState state;
+  reinterpret_cast<ColorWheelProp&>(state) = config_;
+  state.pos_pgrs = blend_value(config_.wheel_from, config_.wheel_to, pgrs);
+  state.intensity = blend_value(intensity_from_, config_.intensity, pgrs);
+
+  return std::make_unique<RGBColorWheelFrame>(frame_size_, state, config_.wheel_gen);
+}
+
+//------------------------------------
+// HSVColorWheelTarget
+
+DataOrError<std::unique_ptr<Target>> HSVColorWheelTarget::Create(uint32_t duration_ms,
+                                                                 const Config& config) {
+  ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
+  if (config.width < 1) {
+    ESP_LOGW(TAG, "Invalid wheel width");
+    return ESP_ERR_INVALID_ARG;
+  }
+  return std::unique_ptr<Target>(new HSVColorWheelTarget(duration_us, config));
+}
+
+std::unique_ptr<Frame> HSVColorWheelTarget::RenderInit(std::unique_ptr<Frame> base_frame) {
+  base_frame = Target::RenderInit(std::move(base_frame));
+  if (base_frame->Type() == Frame::FrameType::kHSVColorWheel) {
+    auto& wheel_frame = static_cast<const HSVColorWheelFrame&>(*base_frame);
+    if (wheel_frame.state.width == config_.width &&
+        (wheel_frame.state.pos_pgrs & (PGRS_DENOM - 1)) ==
+            (config_.wheel_from & (PGRS_DENOM - 1))) {
+      // This is just a continuation of a previous color wheel, no need to blend.
+      intensity_from_ = wheel_frame.state.intensity;
+      return nullptr;
+    }
+  }
+  // Not a continuation from a previous color wheel.
+  intensity_from_ = config_.intensity;
+  return std::move(base_frame);
+}
+
+std::unique_ptr<Frame> HSVColorWheelTarget::RenderFrame(ProgressionType pgrs) {
+  ColorWheelState state;
+  reinterpret_cast<ColorWheelProp&>(state) = config_;
+  state.pos_pgrs = blend_value(config_.wheel_from, config_.wheel_to, pgrs);
+  state.intensity = blend_value(intensity_from_, config_.intensity, pgrs);
+
+  return std::make_unique<HSVColorWheelFrame>(frame_size_, state);
+}
 }  // namespace zw_esp8266::lightshow

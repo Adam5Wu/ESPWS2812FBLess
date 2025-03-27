@@ -98,7 +98,7 @@ PixelWithStatus ColorDotFrame::GetPixelData() {
 // WiperFrame Implementations
 
 WiperFrame::WiperFrame(StripSizeType strip_size, const WiperState& wiper, BladeGenerator blade_func)
-    : Frame(strip_size), wiper(wiper), blade_func_(blade_func) {
+    : Frame(strip_size), wiper(wiper), gen_func_(blade_func) {
   float blade_size = strip_size * wiper.width;
   half_blade_size_ = blade_size / 2;
   // ======blade======|--strip--|======blade======
@@ -141,7 +141,7 @@ AlphaBlendPixel ComputedWiperFrame::GetBladePixel(StripSizeType idx) const {
   // - The on-blade position is p-c+h = 4.9
   float on_blade_pos = idx - blade_center_ + half_blade_size_;
   ProgressionType on_blade_pgrs = on_blade_pos * PGRS_MIDWAY / half_blade_size_;
-  ProgressionType color_pgrs = blade_func_(on_blade_pgrs);
+  ProgressionType color_pgrs = gen_func_(on_blade_pgrs);
 
   RGBA8888 result = wiper.color;
   const RGBA8888 color_from = (on_blade_pgrs < PGRS_MIDWAY) ? wiper.l_color : wiper.r_color;
@@ -172,6 +172,56 @@ CachedWiperFrame::CachedWiperFrame(StripSizeType strip_size, const WiperState& w
 
 AlphaBlendPixel CachedWiperFrame::GetBladePixel(StripSizeType idx) const {
   return blend_pixels_[idx - start_pos_];
+}
+
+//------------------------------------
+// RGBColorWheelFrame Implementations
+
+RGBColorWheelFrame::RGBColorWheelFrame(StripSizeType strip_size, const ColorWheelState& state,
+                                       WheelGenerator wheel_func)
+    : Frame(strip_size), state(state), gen_func_(wheel_func) {
+  float wheel_origin = (float)(state.width) * state.pos_pgrs / PGRS_FULL;
+  wheel_pixels_.resize(std::min(state.width, size));
+  for (std::size_t i = 0; i < wheel_pixels_.size(); ++i) {
+    wheel_pixels_[i] = GetWheelPixel(std::fmod(wheel_origin + i, state.width));
+  }
+}
+
+PixelWithStatus RGBColorWheelFrame::GetPixelData() {
+  StripSizeType scan_pos = index_++;
+  return PixelWithStatus{.rgb = wheel_pixels_[scan_pos % state.width],
+                         .end_of_frame = scan_pos >= size};
+}
+
+RGB888 RGBColorWheelFrame::GetWheelPixel(float wheel_pos) const {
+  ProgressionType c1_pgrs = (wheel_pos / state.width) * (PGRS_DENOM - 1);
+  ProgressionType c2_pgrs = (c1_pgrs + (PGRS_FULL / 3)) & (PGRS_DENOM - 1);
+  ProgressionType c3_pgrs = (c1_pgrs + (2 * PGRS_FULL / 3)) & (PGRS_DENOM - 1);
+  return {pgrs_to_alpha(((uint32_t)gen_func_(c1_pgrs) * state.intensity) >> PGRS_PRECISION),
+          pgrs_to_alpha(((uint32_t)gen_func_(c2_pgrs) * state.intensity) >> PGRS_PRECISION),
+          pgrs_to_alpha(((uint32_t)gen_func_(c3_pgrs) * state.intensity) >> PGRS_PRECISION)};
+}
+
+//------------------------------------
+// HSVColorWheelFrame Implementations
+
+HSVColorWheelFrame::HSVColorWheelFrame(StripSizeType strip_size, const ColorWheelState& state)
+    : Frame(strip_size), state(state) {
+  float wheel_origin = (float)(state.width) * state.pos_pgrs / PGRS_FULL;
+  wheel_pixels_.resize(std::min(state.width, size));
+  for (std::size_t i = 0; i < wheel_pixels_.size(); ++i) {
+    wheel_pixels_[i] = GetWheelPixel(std::fmod(wheel_origin + i, state.width));
+  }
+}
+
+PixelWithStatus HSVColorWheelFrame::GetPixelData() {
+  StripSizeType scan_pos = index_++;
+  return PixelWithStatus{.rgb = wheel_pixels_[scan_pos % state.width],
+                         .end_of_frame = scan_pos >= size};
+}
+
+RGB888 HSVColorWheelFrame::GetWheelPixel(float wheel_pos) const {
+  return HSVPixel(wheel_pos * 360 / state.width, 1.0F, (float)state.intensity / PGRS_FULL);
 }
 
 }  // namespace zw_esp8266::lightshow

@@ -27,7 +27,7 @@ namespace {
 inline constexpr char TAG[] = "Main";
 namespace LS = ::zw_esp8266::lightshow;
 
-inline constexpr LS::StripSizeType STRIP_SIZE = 800;
+inline constexpr LS::StripSizeType STRIP_SIZE = 106;
 inline constexpr uint8_t TARGET_FPS = 80;
 // inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_CLASSIC();
 inline const LS::IOConfig CONFIG_WS2812 = LS::CONFIG_WS2812_NEW();
@@ -64,6 +64,7 @@ void _lightshow_wait_for_finish(const LS::Renderer& renderer, int& target_idx) {
   _lightshow_driver_stats();
   ESP_LOGI(TAG, "=> Heap: %d; Stack: %d", esp_get_free_heap_size(),
            uxTaskGetStackHighWaterMark(NULL));
+  ESP_LOGI(TAG, "----------------------------------------------------------------");
 }
 
 esp_err_t _lightshow() {
@@ -133,9 +134,7 @@ esp_err_t _lightshow() {
   // Wiper targets testing
   LS::WiperTarget::Config wiper_config;
 
-  ESP_LOGI(TAG,
-           "Test realtime computed spot wipe targets...\n"
-           "----------------------------------------------------------------");
+  ESP_LOGI(TAG, "Test realtime computed spot wipe targets...");
   LS::DriverStats();
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
@@ -150,9 +149,7 @@ esp_err_t _lightshow() {
   // Wait for completion
   _lightshow_wait_for_finish(*renderer, target_idx);
 
-  ESP_LOGI(TAG,
-           "Test precomputed spot wipe targets...\n"
-           "----------------------------------------------------------------");
+  ESP_LOGI(TAG, "Test precomputed spot wipe targets...");
   LS::DriverStats();
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
@@ -167,9 +164,7 @@ esp_err_t _lightshow() {
   // Wait for completion
   _lightshow_wait_for_finish(*renderer, target_idx);
 
-  ESP_LOGI(TAG,
-           "Test realtime computed dot wipe targets...\n"
-           "----------------------------------------------------------------");
+  ESP_LOGI(TAG, "Test realtime computed dot wipe targets...");
   LS::DriverStats();
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
@@ -184,9 +179,7 @@ esp_err_t _lightshow() {
   // Wait for completion
   _lightshow_wait_for_finish(*renderer, target_idx);
 
-  ESP_LOGI(TAG,
-           "Test precomputed dot wipe targets...\n"
-           "----------------------------------------------------------------");
+  ESP_LOGI(TAG, "Test precomputed dot wipe targets...");
   LS::DriverStats();
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
@@ -201,9 +194,7 @@ esp_err_t _lightshow() {
   // Wait for completion
   _lightshow_wait_for_finish(*renderer, target_idx);
 
-  ESP_LOGI(TAG,
-           "Test realtime computed color wipe targets...\n"
-           "----------------------------------------------------------------");
+  ESP_LOGI(TAG, "Test realtime computed color wipe targets...");
   LS::DriverStats();
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
@@ -218,9 +209,7 @@ esp_err_t _lightshow() {
   // Wait for completion
   _lightshow_wait_for_finish(*renderer, target_idx);
 
-  ESP_LOGI(TAG,
-           "Test precomputed color wipe targets...\n"
-           "----------------------------------------------------------------");
+  ESP_LOGI(TAG, "Test precomputed color wipe targets...");
   LS::DriverStats();
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
@@ -232,10 +221,77 @@ esp_err_t _lightshow() {
                                                   LS::WiperTarget::Direction::RightToLeft);
   wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
   renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
+  ESP_LOGI(TAG, "Test (precomputed) RGB color wheel targets...");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(LS::RGBColorWheelTarget::Create(
+      2000,
+      {{.width = 60}, .wheel_from = 0, .wheel_to = LS::PGRS(0.2), .intensity = LS::PGRS(0.8)})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(
+      LS::RGBColorWheelTarget::Create(8000, {{.width = 60},
+                                             .wheel_from = LS::PGRS(0.2),
+                                             .wheel_to = LS::PGRS(1),
+                                             .intensity = LS::PGRS(0.5)})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(
+      LS::RGBColorWheelTarget::Create(5000, {{.width = 60},
+                                             .wheel_from = LS::PGRS(0),
+                                             .wheel_to = LS::PGRS(1),
+                                             .intensity = LS::PGRS(0.5)})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(
+      LS::RGBColorWheelTarget::Create(2000, {{.width = 60},
+                                             .wheel_from = LS::PGRS(0),
+                                             .wheel_to = LS::PGRS(0.2),
+                                             .intensity = LS::PGRS(0.1)})));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
+  // Wiper frame can be blended on top of a color wheel
+  // Demonstrate translucent blending capability
+  ESP_LOGI(TAG, "Blending a wiper frame on top of a color wheel background...");
+  LS::DriverStats();
+  wiper_config = LS::WiperTarget::SpotWipeConfig(0.05, {0x24, 0x08, 0x16},
+                                                 LS::WiperTarget::Direction::LeftToRight);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(8000, wiper_config));
+  wiper_config = LS::WiperTarget::SpotWipeConfig(0.1, {0x16, 0x08, 0x24},
+                                                 LS::WiperTarget::Direction::RightToLeft);
+  wiper_config.render_method = LS::WiperTarget::RenderMethod::Precomputed;
+  renderer->EnqueueOrError(LS::WiperTarget::Create(4000, wiper_config));
+  // Wait for completion
+  _lightshow_wait_for_finish(*renderer, target_idx);
+
+  ESP_LOGI(TAG, "Test (precomputed) HSV color wheel targets...");
+  LS::DriverStats();
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, {0x00, 0x02, 0x01})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(LS::HSVColorWheelTarget::Create(
+      2000,
+      {{.width = 60}, .wheel_from = 0, .wheel_to = LS::PGRS(0.2), .intensity = LS::PGRS(0.8)})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(
+      LS::HSVColorWheelTarget::Create(8000, {{.width = 60},
+                                             .wheel_from = LS::PGRS(0.2),
+                                             .wheel_to = LS::PGRS(1),
+                                             .intensity = LS::PGRS(0.5)})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(
+      LS::HSVColorWheelTarget::Create(5000, {{.width = 60},
+                                             .wheel_from = LS::PGRS(0),
+                                             .wheel_to = LS::PGRS(1),
+                                             .intensity = LS::PGRS(0.5)})));
+  ESP_RETURN_ON_ERROR(renderer->EnqueueOrError(
+      LS::HSVColorWheelTarget::Create(2000, {{.width = 60},
+                                             .wheel_from = LS::PGRS(0),
+                                             .wheel_to = LS::PGRS(0.2),
+                                             .intensity = LS::PGRS(0.1)})));
+
   // Wait for completion
   _lightshow_wait_for_finish(*renderer, target_idx);
 
   // Finishing up the show
+  ESP_LOGI(TAG, "Turning off the strip...");
   LS::DriverStats();
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(LS::UniformColorTarget::Create(800, LS::RGB8BPixel::BLACK())));

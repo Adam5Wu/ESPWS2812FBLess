@@ -157,8 +157,8 @@ union RGBA8888 {
 };
 
 inline std::string to_string(const RGBA8888& in) {
-  std::string ret(13, ' ');
-  snprintf(&ret.front(), 14, "RGBA:%02X%02X%02X%02X", in.r, in.g, in.b, in.a);
+  std::string ret(14, ' ');
+  snprintf(&ret.front(), 15, "RGBA:%02X%02X%02X@%02X", in.r, in.g, in.b, in.a);
   return ret;
 }
 
@@ -374,6 +374,85 @@ using AlphaBlendPixel = RGB8BBlendPixel;
 #else
 #error Unsupported alpha blending mode!
 #endif
+
+struct HSVPixel {
+  using _this = HSVPixel;
+
+  float h, s, v;
+
+  HSVPixel() = default;
+  constexpr HSVPixel(float h, float s, float v) : h(h), s(s), v(v) {}
+  HSVPixel(const RGB888& in) { *this = in; }
+
+  _this& hue_rotate(float deg) {
+    h = std::fmod(h + deg, 360);
+    if (h < 0) h += 360;
+
+    return *this;
+  }
+
+  _this& operator=(const RGB888& in) {
+    uint8_t in_max = std::max({in.r, in.g, in.b});
+    uint8_t in_min = std::min({in.r, in.g, in.b});
+    uint8_t in_delta = in_max - in_min;
+
+    if (in_delta != 0) {
+      if (in_max == in.r) {
+        h = (float)(((int16_t)in.g - in.b) * 60) / in_delta + (in.g >= in.b ? 0 : 360);
+      } else if (in_max == in.g) {
+        h = (float)(((int16_t)in.b - in.r) * 60) / in_delta + 120;
+      } else if (in_max == in.b) {
+        h = (float)(((int16_t)in.r - in.g) * 60) / in_delta + 240;
+      }
+      s = (float)in_delta / in_max;
+      v = (float)in_max / UINT8_MAX;
+    } else {
+      h = s = v = 0;
+    }
+
+    return *this;
+  }
+
+  operator RGB888() {
+    if (s == 0.0F)
+      return {(uint8_t)(v * UINT8_MAX), (uint8_t)(v * UINT8_MAX), (uint8_t)(v * UINT8_MAX)};
+
+    float h_domain;
+    float f = std::modf(h / 60, &h_domain);
+
+    float p = v * (1.0F - s);
+    float q = v * (1.0F - s * f);
+    float t = v * (1.0F - s * (1.0F - f));
+
+    switch ((int)h_domain) {
+      case 0:
+        return {(uint8_t)(v * UINT8_MAX), (uint8_t)(t * UINT8_MAX), (uint8_t)(p * UINT8_MAX)};
+      case 1:
+        return {(uint8_t)(q * UINT8_MAX), (uint8_t)(v * UINT8_MAX), (uint8_t)(p * UINT8_MAX)};
+      case 2:
+        return {(uint8_t)(p * UINT8_MAX), (uint8_t)(v * UINT8_MAX), (uint8_t)(t * UINT8_MAX)};
+      case 3:
+        return {(uint8_t)(p * UINT8_MAX), (uint8_t)(q * UINT8_MAX), (uint8_t)(v * UINT8_MAX)};
+      case 4:
+        return {(uint8_t)(t * UINT8_MAX), (uint8_t)(p * UINT8_MAX), (uint8_t)(v * UINT8_MAX)};
+      case 5:
+        return {(uint8_t)(v * UINT8_MAX), (uint8_t)(p * UINT8_MAX), (uint8_t)(q * UINT8_MAX)};
+    }
+
+    // Should not happen
+    return RGB8BPixel::BLACK();
+  }
+};
+
+inline std::string to_string(const HSVPixel in) {
+  std::string ret(24, ' ');
+  uint16_t h_10x = (uint16_t)std::roundf(in.h * 10);
+  uint16_t s_1000x = (uint16_t)std::roundf(in.s * 1000);
+  uint16_t v_1000x = (uint16_t)std::roundf(in.v * 1000);
+  snprintf(&ret.front(), 25, "HSV:%d.%d,%d.%d%%,%d.%d%%", h_10x / 10, h_10x % 10, s_1000x / 10,
+           s_1000x % 10, v_1000x / 10, v_1000x % 10);
+  return ret;
+}
 
 }  // namespace zw_esp8266::lightshow
 
