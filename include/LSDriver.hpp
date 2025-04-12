@@ -1,6 +1,6 @@
 // Light-show driver
-#ifndef ZWESP8266_LSDRIVER
-#define ZWESP8266_LSDRIVER
+#ifndef ZWLIGHTSHOW_DRIVER
+#define ZWLIGHTSHOW_DRIVER
 
 #include <cstdint>
 #include <memory>
@@ -13,7 +13,7 @@
 // Turn on extra debugging features.
 #define ISR_DEVELOPMENT 0
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 
 inline constexpr uint16_t kMinJitterBudget = 200;
 inline constexpr uint16_t kMaxJitterBudget = 20000;
@@ -164,6 +164,6 @@ esp_err_t DriverStop();
 // Fetch and clear the stats
 IOStats DriverStats();
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow
 
-#endif  // ZWESP8266_LSDRIVER
+#endif  // ZWLIGHTSHOW_DRIVER

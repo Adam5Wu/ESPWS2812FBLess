@@ -1,6 +1,6 @@
 // Light-show frame
-#ifndef ZWESP8266_LSFRAME
-#define ZWESP8266_LSFRAME
+#ifndef ZWLIGHTSHOW_FRAME
+#define ZWLIGHTSHOW_FRAME
 
 #include <vector>
 #include <memory>
@@ -10,7 +10,7 @@
 #include "LSUtils.hpp"
 #include "LSPixel.hpp"
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 
 struct PixelWithStatus {
   union {
@@ -344,6 +344,6 @@ class HSVColorWheelFrame : public Frame {
   RGB888 GetWheelPixel(float wheel_pos) const;
 };
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow
 
-#endif  // ZWESP8266_LSFRAME
+#endif  // ZWLIGHTSHOW_FRAME

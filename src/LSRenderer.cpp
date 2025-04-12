@@ -3,16 +3,18 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 
+#include "ZWUtils.hpp"
+
 #include "LSPixel.hpp"
 #include "LSFrame.hpp"
 #include "LSTarget.hpp"
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 
 inline constexpr char TAG[] = "LSRenderer";
 
-DataOrError<std::unique_ptr<Renderer>> Renderer::Create(StripSizeType strip_size,
-                                                        uint8_t target_fps) {
+utils::DataOrError<std::unique_ptr<Renderer>> Renderer::Create(StripSizeType strip_size,
+                                                               uint8_t target_fps) {
   if (strip_size == 0 || strip_size > kMaxStripSize) {
     ESP_LOGW(TAG, "Invalid strip size");
     return ESP_ERR_INVALID_ARG;
@@ -161,4 +163,4 @@ Frame* Renderer::RenderFrame() {
   return result;
 }
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow

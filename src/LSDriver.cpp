@@ -15,7 +15,8 @@
 #include "esp8266/timer_struct.h"
 #include "esp8266/timer_register.h"
 
-#include "ESPIDF_shim.h"
+#include "ZW_IDFLTH.h"
+
 #include "LSPixel.hpp"
 #include "LSFrame.hpp"
 #include "LSRenderer.hpp"
@@ -27,7 +28,7 @@
 #include "freertos/ringbuf.h"
 #endif
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 namespace {
 
 inline constexpr char TAG[] = "LSDriver";
@@ -804,4 +805,4 @@ IOStats DriverStats() {
   return result;
 }
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow

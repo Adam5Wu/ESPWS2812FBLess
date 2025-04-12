@@ -2,12 +2,13 @@
 
 #include <cmath>
 
+#include "assert.h"
 #include "esp_log.h"
 
 #include "LSUtils.hpp"
 #include "LSPixel.hpp"
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 namespace {
 
 inline constexpr char TAG[] = "LSFrame";
@@ -224,4 +225,4 @@ RGB888 HSVColorWheelFrame::GetWheelPixel(float wheel_pos) const {
   return HSVPixel(wheel_pos * 360 / state.width, 1.0F, (float)state.intensity / PGRS_FULL);
 }
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow

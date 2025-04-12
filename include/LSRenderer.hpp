@@ -1,6 +1,6 @@
 // Light-show renderer
-#ifndef ZWESP8266_LSRENDERER
-#define ZWESP8266_LSRENDERER
+#ifndef ZWLIGHTSHOW_RENDERER
+#define ZWLIGHTSHOW_RENDERER
 
 #include <cstdint>
 #include <optional>
@@ -13,11 +13,12 @@
 #include "freertos/semphr.h"
 #include "freertos/event_groups.h"
 
-#include "LSUtils.hpp"
+#include "ZWUtils.hpp"
+
 #include "LSFrame.hpp"
 #include "LSTarget.hpp"
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 
 // Realistically, to get ~30fps the maximum number of pixel is around 1024.
 // Increasing to 1280, you only get ~25fps which is probably the minimum for transition to be
@@ -39,8 +40,8 @@ inline constexpr EventBits_t RENDERER_IDLE_TARGET = BIT3;
 
 class Renderer {
  public:
-  static DataOrError<std::unique_ptr<Renderer>> Create(StripSizeType strip_size,
-                                                       uint8_t target_fps = kDefaultFPS);
+  static utils::DataOrError<std::unique_ptr<Renderer>> Create(StripSizeType strip_size,
+                                                              uint8_t target_fps = kDefaultFPS);
 
   ~Renderer() { vSemaphoreDelete(target_lock_); };
 
@@ -52,7 +53,7 @@ class Renderer {
   void Enqueue(std::unique_ptr<Target> target, bool drop_ongoing = false);
 
   // Short-hand Enqueue for easy cascading from target creation.
-  esp_err_t EnqueueOrError(DataOrError<std::unique_ptr<Target>>&& target,
+  esp_err_t EnqueueOrError(utils::DataOrError<std::unique_ptr<Target>>&& target,
                            bool drop_ongoing = false) {
     if (!target) return target.error();
     Enqueue(std::move(*target), drop_ongoing);
@@ -101,6 +102,6 @@ class Renderer {
         base_frame_(std::move(init_frame)) {}
 };
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow
 
-#endif  // ZWESP8266_LSRENDERER
+#endif  // ZWLIGHTSHOW_RENDERER

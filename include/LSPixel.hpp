@@ -1,13 +1,13 @@
 // Light-show pixel
-#ifndef ZWESP8266_LSPIXEL
-#define ZWESP8266_LSPIXEL
+#ifndef ZWLIGHTSHOW_PIXEL
+#define ZWLIGHTSHOW_PIXEL
 
 #include <cstdint>
 #include <string.h>
 
 #include "sdkconfig.h"
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 
 using RGB8BFlatType = uint8_t[3];
 
@@ -454,6 +454,6 @@ inline std::string to_string(const HSVPixel in) {
   return ret;
 }
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow
 
-#endif  // ZWESP8266_LSPIXEL
+#endif  // ZWLIGHTSHOW_PIXEL
