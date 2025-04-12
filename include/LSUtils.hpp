@@ -1,46 +1,14 @@
 // Light-show utilities
-#ifndef ZWESP8266_LSUTILS
-#define ZWESP8266_LSUTILS
+#ifndef ZWLIGHTSHOW_UTILS
+#define ZWLIGHTSHOW_UTILS
 
 #include <cmath>
 #include <algorithm>
-#include <variant>
 
-#include "esp_err.h"
+#include "assert.h"
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 
-template <typename T>
-class DataOrError {
- public:
-  DataOrError(T&& data) : data_or_error_(std::in_place_index<0>, std::move(data)) {}
-  DataOrError(esp_err_t error) : data_or_error_(std::in_place_index<1>, error) {}
-
-  DataOrError(const DataOrError&) = delete;
-  DataOrError& operator=(const DataOrError&) = delete;
-
-  T& operator*() { return std::get<0>(data_or_error_); }
-  const T& operator*() const { return std::get<0>(data_or_error_); }
-  T* operator->() { return &std::get<0>(data_or_error_); }
-  const T* operator->() const { return &std::get<0>(data_or_error_); }
-
-  operator bool() const { return data_or_error_.index() == 0; }
-  esp_err_t error() const {
-    return data_or_error_.index() == 1 ? std::get<1>(data_or_error_) : ESP_OK;
-  }
-
- private:
-  std::variant<T, esp_err_t> data_or_error_;
-};
-
-#define UNIQUE_VAR(prefix) prefix##__COUNTER__
-
-#define ASSIGN_OR_RETURN(val, statement)                                    \
-  auto UNIQUE_VAR(data_or_error) = (statement);                             \
-  if (!UNIQUE_VAR(data_or_error)) return UNIQUE_VAR(data_or_error).error(); \
-  val = std::move(*UNIQUE_VAR(data_or_error))
-
-// Computes the "progression" of `cur` from `total` with 12-bit precision.
 using ProgressionType = uint16_t;
 
 inline constexpr uint8_t PGRS_PRECISION = 12;
@@ -52,8 +20,10 @@ inline constexpr uint32_t PGRS_DENOM = 1U << PGRS_PRECISION;
 inline constexpr ProgressionType PGRS_FULL = PGRS_DENOM;
 inline constexpr ProgressionType PGRS_MIDWAY = (PGRS_FULL - 1) >> 1;
 
+// Convert a fraction [0.0, 1.0] into progression value [0, PGRS_FULL]
 constexpr ProgressionType PGRS(float frac) { return frac * PGRS_FULL; }
 
+// Computes the "progression" of `cur` from `total` with 12-bit precision.
 inline ProgressionType progression(uint32_t cur, uint32_t total) {
   if (cur >= total) return PGRS_FULL;
   if (total > PGRS_MIN_DIVISOR) {
@@ -106,6 +76,6 @@ inline ProgressionType pgrs_map_sawtooth(ProgressionType pgrs) {
   return ((pgrs <= PGRS_MIDWAY) ? pgrs : PGRS_FULL - pgrs) << 1;
 }
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow
 
-#endif  // ZWESP8266_LSUTILS
+#endif  // ZWLIGHTSHOW_UTILS

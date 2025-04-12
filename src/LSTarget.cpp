@@ -4,20 +4,20 @@
 
 #include "esp_log.h"
 
+#include "ZWUtils.hpp"
+
 #include "LSUtils.hpp"
 #include "LSPixel.hpp"
 #include "LSFrame.hpp"
 
-#include "ESPIDF_shim.h"
-
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 namespace {
 
 inline constexpr char TAG[] = "LSTarget";
 
 }  // namespace
 
-DataOrError<uint32_t> Target::PrepareDuration(uint32_t duration_ms) {
+utils::DataOrError<uint32_t> Target::PrepareDuration(uint32_t duration_ms) {
   if (duration_ms > kMaxTargetDurationMS) {
     ESP_LOGW(TAG, "Target duration too long");
     return ESP_ERR_INVALID_ARG;
@@ -48,8 +48,8 @@ DotState ColorDotTarget::CurrentDotState(ProgressionType pgrs) const {
           .pos_pgrs = (ProgressionType)blend_value(base_dot_.pos_pgrs, dot.pos_pgrs, pgrs)};
 }
 
-DataOrError<std::unique_ptr<Target>> ColorDotTarget::Create(uint32_t duration_ms, DotState dot,
-                                                            std::optional<DotState> def_dot) {
+utils::DataOrError<std::unique_ptr<Target>> ColorDotTarget::Create(
+    uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
   ESP_RETURN_ON_ERROR(ValidateDots(dot, def_dot));
   return std::unique_ptr<Target>(new ColorDotTarget(duration_us, dot, def_dot));
@@ -91,8 +91,8 @@ std::unique_ptr<Frame> ColorDotTarget::RenderFrame(ProgressionType pgrs) {
 //------------------------------------
 // WiperTarget
 
-DataOrError<std::unique_ptr<Target>> WiperTarget::Create(uint32_t duration_ms,
-                                                         const Config& config) {
+utils::DataOrError<std::unique_ptr<Target>> WiperTarget::Create(uint32_t duration_ms,
+                                                                const Config& config) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
   return std::unique_ptr<Target>(new WiperTarget(duration_us, config));
 }
@@ -165,8 +165,8 @@ WiperTarget::Config WiperTarget::ColorWipeConfig(float width, RGB888 color, Dire
 //------------------------------------
 // RGBColorWheelTarget
 
-DataOrError<std::unique_ptr<Target>> RGBColorWheelTarget::Create(uint32_t duration_ms,
-                                                                 const Config& config) {
+utils::DataOrError<std::unique_ptr<Target>> RGBColorWheelTarget::Create(uint32_t duration_ms,
+                                                                        const Config& config) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
   if (config.width < 1) {
     ESP_LOGW(TAG, "Invalid wheel width");
@@ -204,8 +204,8 @@ std::unique_ptr<Frame> RGBColorWheelTarget::RenderFrame(ProgressionType pgrs) {
 //------------------------------------
 // HSVColorWheelTarget
 
-DataOrError<std::unique_ptr<Target>> HSVColorWheelTarget::Create(uint32_t duration_ms,
-                                                                 const Config& config) {
+utils::DataOrError<std::unique_ptr<Target>> HSVColorWheelTarget::Create(uint32_t duration_ms,
+                                                                        const Config& config) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
   if (config.width < 1) {
     ESP_LOGW(TAG, "Invalid wheel width");
@@ -239,4 +239,4 @@ std::unique_ptr<Frame> HSVColorWheelTarget::RenderFrame(ProgressionType pgrs) {
 
   return std::make_unique<HSVColorWheelFrame>(frame_size_, state);
 }
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow

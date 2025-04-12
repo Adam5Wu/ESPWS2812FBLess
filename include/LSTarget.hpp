@@ -1,6 +1,6 @@
 // Light-show target
-#ifndef ZWESP8266_LSTARGET
-#define ZWESP8266_LSTARGET
+#ifndef ZWLIGHTSHOW_TARGET
+#define ZWLIGHTSHOW_TARGET
 
 #include <cstdint>
 #include <optional>
@@ -9,11 +9,13 @@
 
 #include "esp_err.h"
 
+#include "ZWUtils.hpp"
+
 #include "LSUtils.hpp"
 #include "LSPixel.hpp"
 #include "LSFrame.hpp"
 
-namespace zw_esp8266::lightshow {
+namespace zw::esp8266::lightshow {
 
 // With 12-bit progression, this is a little more than 60 seconds.
 inline constexpr uint32_t kMaxTargetDurationMS = PGRS_MAX_DIVNUM / 1000;
@@ -46,7 +48,7 @@ class Target {
   // Prepare the duration in microseconds.
   // Due to the range and precision of progression computation, we only support
   // duration with granularity of milliseconds, and up to `kMaxTargetDurationMS`.
-  static DataOrError<uint32_t> PrepareDuration(uint32_t duration_ms);
+  static utils::DataOrError<uint32_t> PrepareDuration(uint32_t duration_ms);
 
  protected:
   StripSizeType frame_size_;
@@ -61,7 +63,7 @@ class UniformColorTarget : public Target {
  public:
   const RGB888 color;
 
-  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, RGB888 color) {
+  static utils::DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, RGB888 color) {
     ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
     return std::unique_ptr<Target>(new UniformColorTarget(duration_us, color));
   }
@@ -84,7 +86,7 @@ class ColorDotTarget : public Target {
  public:
   const DotState dot;
 
-  static DataOrError<std::unique_ptr<Target>> Create(
+  static utils::DataOrError<std::unique_ptr<Target>> Create(
       uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot = std::nullopt);
 
   std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
@@ -121,7 +123,8 @@ class WiperTarget : public Target {
     RenderMethod render_method = RenderMethod::Precomputed;
   };
 
-  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, const Config& config);
+  static utils::DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms,
+                                                            const Config& config);
 
   // Render the wiper as a "dot", rendered using Gaussian PDF between [-3.3,3.3].
   static Config DotWipeConfig(float width, RGB888 color, Direction dir);
@@ -152,7 +155,8 @@ class RGBColorWheelTarget : public Target {
     RGBColorWheelFrame::WheelGenerator wheel_gen = pgrs_map_exponential;
   };
 
-  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, const Config& config);
+  static utils::DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms,
+                                                            const Config& config);
 
   std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
   std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
@@ -173,7 +177,8 @@ class HSVColorWheelTarget : public Target {
     ProgressionType intensity = PGRS_FULL;
   };
 
-  static DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms, const Config& config);
+  static utils::DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms,
+                                                            const Config& config);
 
   std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
   std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
@@ -186,6 +191,6 @@ class HSVColorWheelTarget : public Target {
       : Target(duration_us), config_(config) {}
 };
 
-}  // namespace zw_esp8266::lightshow
+}  // namespace zw::esp8266::lightshow
 
-#endif  // ZWESP8266_LSTARGET
+#endif  // ZWLIGHTSHOW_TARGET
