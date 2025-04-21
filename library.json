@@ -8,7 +8,7 @@
   "dependencies": [
     {
       "name": "ZWUtils-IDF8266",
-      "version": "https://github.com/Adam5Wu/ZWUtils_IDF8266.git#v1.0.0"
+      "version": "https://github.com/Adam5Wu/ZWUtils_IDF8266.git#v1.0.1"
     }
   ],
   "authors": [
