@@ -3,6 +3,7 @@
 #define ZWLIGHTSHOW_PIXEL
 
 #include <cstdint>
+#include <cmath>
 #include <string.h>
 
 #include "sdkconfig.h"
