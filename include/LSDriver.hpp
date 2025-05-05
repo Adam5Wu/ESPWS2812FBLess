@@ -4,7 +4,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 
 #include "esp_err.h"
 
@@ -25,7 +24,7 @@ inline constexpr uint32_t kMinBaudRate = 9600;
 inline constexpr uint32_t kMaxBaudRate = 4000000;
 
 inline constexpr uint16_t kDefaultTaskStack = 1200;
-inline constexpr UBaseType_t kDefaultTaskPriority = 6;
+inline constexpr UBaseType_t kDefaultTaskPriority = 10;
 
 struct IOConfig {
   // Baud rate for serial TX line
@@ -89,18 +88,21 @@ inline constexpr IOConfig CONFIG_WS2812_TEMPLATE = {
     },
 };
 
-inline IOConfig CONFIG_WS2812_CLASSIC() { return CONFIG_WS2812_TEMPLATE; }
-
-inline IOConfig CONFIG_WS2812_CUSTOM(uint16_t std_reset_us, uint16_t min_reset_us = 0,
-                                     std::optional<uint16_t> jitter_budget_us = std::nullopt) {
+inline IOConfig CONFIG_WS2812_CUSTOM(uint16_t std_reset_us = 0, uint16_t min_reset_us = 0,
+                                     uint16_t jitter_budget_us = 0) {
   IOConfig config = CONFIG_WS2812_TEMPLATE;
-  config.std_reset_us = std_reset_us;
-  config.min_reset_us = min_reset_us;
-  if (jitter_budget_us) config.jitter_budget_us = *jitter_budget_us;
+  if (std_reset_us) config.std_reset_us = std_reset_us;
+  if (min_reset_us) config.min_reset_us = min_reset_us;
+  if (jitter_budget_us) config.jitter_budget_us = jitter_budget_us;
   return config;
 }
-// The newer WS2812 revision has a >300us reset time
-inline IOConfig CONFIG_WS2812_NEW() { return CONFIG_WS2812_CUSTOM(320, 40); }
+inline IOConfig CONFIG_WS2812_CLASSIC(uint16_t jitter_budget_us = 0) {
+  return CONFIG_WS2812_CUSTOM(0, 0, jitter_budget_us);
+}
+inline IOConfig CONFIG_WS2812_NEW(uint16_t jitter_budget_us = 0) {
+  // The newer WS2812 revision has a >300us reset time
+  return CONFIG_WS2812_CUSTOM(320, 40, jitter_budget_us);
+}
 
 struct IOStats {
   // Timestamp of the last "refresh" of the counters
@@ -114,7 +116,12 @@ struct IOStats {
   uint32_t underflow_actual;
   uint32_t underflow_near_miss;
 #if ISR_DEVELOPMENT
+  // How many times ISR woke up to a depleted UART buffer
+  uint32_t isr_late_wakeup;
+  // Observed maximum ISR send latency
+  // (from ISR entry to dispatching data to TX FIFO)
   uint16_t isr_process_latency_high;
+  // Observed minimum ISR send latency
   uint16_t isr_process_latency_low;
 #endif
 };
