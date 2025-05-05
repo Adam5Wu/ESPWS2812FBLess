@@ -7,22 +7,17 @@ menu "Framebuffer-less WS2812 driver"
             Use a built-in custom ring buffer implementation (recommended).
             It works more efficiently than the generic ring buffer in ESP-IDF.
 
-    config ESP2812FBLESS_PIXEL_BLOCK_SIZE
-        int "The number of pixels in a ring buffer block (0-9)"
-        depends on ESP2812FBLESS_CUSTOM_RINGBUF
-        range 1 9
-        default 9
+    config ESP2812FBLESS_TX_BUFFER_THRESHOLD
+        int "The threshold to trigger TX buffer refill (2-8)"
+        range 2 8
+        default 2
         help
-            The pixel data is delivered to the ring buffer in whole blocks.
-            - Larger block size improves data transmission efficiency; However,
-            if the computation is costly, the risk of frame underflow increases.
-            - Smaller block size reduces the latency to complete a whole block;
-            But the processing overhead is higher than larger blocks.
+            Setting a lower value allows the refill interrupt to trigger less often
+            and each refill works on a larger number of pixels, hence better efficiency.
+            However, it is more prone to buffer underflow and flicking, especially when
+            WiFi is enabled.
 
-            Note that since the free space in FIFO during frame transmission is
-            around 9 pixels, block size of 8, 7, 6, 5 are generally *not* good
-            choices, because they will leave the FIFO under-utilized, and hence
-            increase interrupt frequency.
+            Use a larger value if you experience excessive rendering glitches.
 
     choice
         prompt "Default pixel color format"

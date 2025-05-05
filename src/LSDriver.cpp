@@ -38,14 +38,15 @@ inline constexpr char TAG[] = "LSDriver";
 // (Sent as 8 bits, including a lead bit and stop bit.)
 using UARTPixel = uint8_t[8 * 3 / 2];
 
-// Use a 12 bytes threshold (the SDK default is 10)
-inline constexpr uint8_t UART_TX_FIFO_THRESHOLD = sizeof(UARTPixel);
+// Set 5 pixels (60 bytes) TX FIFO threshold
+inline constexpr uint8_t UART_TX_FIFO_THRESHOLD =
+  sizeof(UARTPixel) * CONFIG_ESP2812FBLESS_TX_BUFFER_THRESHOLD;
 // The FRC1 counter can only hold a 23 bit value
 inline constexpr uint32_t FRC1_COUNTER_LIMIT = (1 << 23) - 1;
 // The FRC1 timer interrupt has a resolution limit of ~30us
 inline constexpr uint8_t FRC1_RESOLUTION_LIMIT = 30;
 // The overhead of the ISR in microseconds (at 80MHz)
-// ISR takes ~8us, plus an extra ~7us processing cost
+// Assume ISR jitter of ~10us, plus an extra ~5us processing cost
 inline constexpr uint8_t ISR_OVERHEAD_80MHZ = 15;
 
 IOConfig config_ = {};
@@ -58,10 +59,7 @@ uint16_t buffer_depletion_time_[UART_TX_FIFO_THRESHOLD + 1];
 
 // The number of bytes in FIFO that are "open" when TX interrupt is triggered
 inline constexpr uint8_t FIFO_OPENSPACE = UART_FIFO_LEN - UART_TX_FIFO_THRESHOLD;
-
-inline constexpr uint8_t PIXEL_MAX_BLOCK_SIZE = FIFO_OPENSPACE / sizeof(UARTPixel);
-inline constexpr uint8_t PIXEL_BLOCK_SIZE = CONFIG_ESP2812FBLESS_PIXEL_BLOCK_SIZE;
-static_assert(PIXEL_BLOCK_SIZE <= PIXEL_MAX_BLOCK_SIZE);
+inline constexpr uint8_t PIXEL_BLOCK_SIZE = FIFO_OPENSPACE / sizeof(UARTPixel);
 
 using PixelBlockType = RGB8BFlatType[PIXEL_BLOCK_SIZE];
 using BlockIdxType = int16_t;
@@ -253,6 +251,11 @@ receive_data:
   // How many bytes remains in the buffer
   // NOTE: the data is in "verbose" level representation
   uint8_t tx_fifo_rem = uart1.status.txfifo_cnt;
+
+#if ISR_DEVELOPMENT
+  if ((state_.frame_pos > 0) && (tx_fifo_rem == 0)) ++stats_.isr_late_wakeup;
+#endif
+
   // How many bytes are we still expecting for this frame
   // NOTE: the data is in "compact" color component representation
   StripSizeType frame_rem = state_.frame_size - state_.frame_pos;
@@ -620,7 +623,7 @@ esp_err_t DriverSetup(const IOConfig& config, Renderer* renderer) {
     ESP_LOGE(TAG, "Invalid standard reset time of %d us", config.std_reset_us);
     return ESP_ERR_INVALID_ARG;
   }
-  if (config.min_reset_us < kMinResetTime || config.min_reset_us > kMaxResetTime) {
+  if (config.min_reset_us > config.std_reset_us) {
     ESP_LOGE(TAG, "Invalid minimum reset time of %d us", config.min_reset_us);
     return ESP_ERR_INVALID_ARG;
   }
