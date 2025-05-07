@@ -123,12 +123,17 @@ Frame* Renderer::RenderFrame() {
         auto new_frame_ = cur_target.RenderFrame(pgrs);
 
         if (pgrs == PGRS_FULL) {
-          // This is the last frame, if it is not translucent no blending needed.
-          if (blender_frame_ == nullptr || !new_frame_->IsTranslucent()) {
-            base_frame_ = std::move(new_frame_);
+          if (new_frame_ != nullptr) {
+            // This is the last frame, if it is not translucent no blending needed.
+            if (blender_frame_ == nullptr || !new_frame_->IsTranslucent()) {
+              base_frame_ = std::move(new_frame_);
+            } else {
+              // Blending is still needed for translucent last frame.
+              blender_frame_->UpdateOverlay(std::move(new_frame_), UINT8_MAX);
+            }
           } else {
-            // Blending is still needed for translucent last frame.
-            blender_frame_->UpdateOverlay(std::move(new_frame_), UINT8_MAX);
+            // Re-render the same frame
+            base_frame_->Reset();
           }
 
           targets_.pop();
@@ -140,11 +145,16 @@ Frame* Renderer::RenderFrame() {
           // So we only need to track the whole-frame overshoots.
           overshoot_us_ += overtime - overtime % frame_interval_us_;
         } else {
-          // Blend frame if requested.
-          if (blender_frame_ != nullptr) {
-            blender_frame_->UpdateOverlay(std::move(new_frame_), pgrs_to_alpha(pgrs));
+          if (new_frame_ != nullptr) {
+            // Blend frame if requested.
+            if (blender_frame_ != nullptr) {
+              blender_frame_->UpdateOverlay(std::move(new_frame_), pgrs_to_alpha(pgrs));
+            } else {
+              base_frame_ = std::move(new_frame_);
+            }
           } else {
-            base_frame_ = std::move(new_frame_);
+            // Re-render the same frame
+            base_frame_->Reset();
           }
         }
 

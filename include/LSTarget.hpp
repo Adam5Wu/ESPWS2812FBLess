@@ -30,7 +30,7 @@ class Target {
   virtual ~Target() = default;
 
   // Prepare the target for rendering.
-  // The `base_frame` is offered by the rendered as the starting state.
+  // The `base_frame` is offered by the renderer as the starting state.
   // - By default the `base_frame` is returned (basically giving back the ownership
   //   to the renderer). The renderer will perform generic color blending between
   //   the `base_frame` and the frames produced by the target, spliced across the
@@ -54,6 +54,19 @@ class Target {
   StripSizeType frame_size_;
 
   Target(uint32_t duration_us) : duration_us(duration_us) {}
+};
+
+// A target that does nothing (but kill time :P)
+class NoopTarget : public Target {
+ public:
+  static utils::DataOrError<std::unique_ptr<Target>> Create(uint32_t duration_ms) {
+    ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
+    return std::unique_ptr<Target>(new NoopTarget(duration_us));
+  }
+  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override { return nullptr; }
+
+ protected:
+  NoopTarget(uint32_t duration_us) : Target(duration_us) {}
 };
 
 // A target that displays a uniform color.
