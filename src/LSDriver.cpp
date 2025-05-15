@@ -45,6 +45,12 @@ inline constexpr uint8_t UART_TX_FIFO_THRESHOLD =
 inline constexpr uint32_t FRC1_COUNTER_LIMIT = (1 << 23) - 1;
 // The FRC1 timer interrupt has a resolution limit of ~30us
 inline constexpr uint8_t FRC1_RESOLUTION_LIMIT = 30;
+// The limit of sleep duration when ISR is busy waiting for data.
+// This will make the ISR breaks a long sleep into segments, thereby
+// having more chances to refill buffer, avoiding underflow.
+// Note that it is only effective if UART_TX_FIFO_THRESHOLD is
+// sufficiently large.
+inline constexpr uint8_t ISR_BUSY_WAIT_SLEEP_LIMIT = 120;
 // The overhead of the ISR in microseconds (at 80MHz)
 // Assume ISR jitter of ~10us, plus an extra ~5us processing cost
 inline constexpr uint8_t ISR_OVERHEAD_80MHZ = 15;
@@ -308,10 +314,15 @@ receive_data:
         case 0: {  // This is the first out-of-data occurrence
           // The time needed to send remaining data + reset time - isr_overhead
           uint16_t underflow_threshold =
-              buffer_depletion_time_[std::min(tx_fifo_rem, UART_TX_FIFO_THRESHOLD)] +
-              config_.min_reset_us - state_.isr_overhead;
-          ++state_.underflow_state;
-          // Wake up when the threshold is passed, hopefully some data will arrive.
+            buffer_depletion_time_[std::min(tx_fifo_rem, UART_TX_FIFO_THRESHOLD)] +
+            config_.min_reset_us - state_.isr_overhead;
+          if (underflow_threshold > ISR_BUSY_WAIT_SLEEP_LIMIT) {
+            // If the deadline is a bit too far away, we stage an "interim sleep".
+            underflow_threshold >>= 1;
+          } else {
+            // Wake up at deadline, hopefully some data will arrive.
+            ++state_.underflow_state;
+          }
           _hw_timer_rearm(underflow_threshold);
           stats_.busy_wait += underflow_threshold;
         } break;
