@@ -74,7 +74,7 @@ class Renderer {
   // Wait for any ephemeral event to occur.
   // The events are triggered right before the processing happen
   EventBits_t WaitFor(EventBits_t events, TickType_t timeout) const {
-    return xEventGroupWaitBits(events_, events, true, false, timeout);
+    return xEventGroupWaitBits(events_, events, true, false, timeout) & events;
   }
 
   // Call these function as a part of serialized set up
