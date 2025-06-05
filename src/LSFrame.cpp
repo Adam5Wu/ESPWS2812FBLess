@@ -1,6 +1,7 @@
 #include "LSFrame.hpp"
 
 #include <cmath>
+#include <optional>
 
 #include "assert.h"
 #include "esp_log.h"
@@ -21,18 +22,21 @@ inline constexpr char TAG[] = "LSFrame";
 BlenderFrame::BlenderFrame(std::unique_ptr<Frame> base_frame) : Frame(base_frame->size) {
   // Translucent frame cannot serve as a base frame.
   assert(!base_frame->IsTranslucent());
+  alpha_mask_.push_back(0);
 
   // If the base is already a blender frame, avoid nesting in certain situations.
   if (base_frame->Type() == FrameType::kBlender) {
     auto& blender_base = static_cast<BlenderFrame&>(*base_frame);
     // No blend frame, completely transparent, or translucent blend frame: keep base frame.
-    if (blender_base.blend_frame_ == nullptr || blender_base.alpha_ == 0 ||
+    if (blender_base.blend_frame_ == nullptr ||
+        (blender_base.alpha_mask_.size() == 1 && blender_base.alpha_mask_[0] == 0) ||
         blender_base.blend_frame_->IsTranslucent()) {
       base_frame_ = std::move(blender_base.base_frame_);
       return;
     }
     // Complete opaque blend frame: keep blend frame.
-    if (blender_base.blend_frame_ != nullptr && blender_base.alpha_ == UINT8_MAX) {
+    if (blender_base.blend_frame_ != nullptr &&
+        (blender_base.alpha_mask_.size() == 1 && blender_base.alpha_mask_[0] == UINT8_MAX)) {
       base_frame_ = std::move(blender_base.blend_frame_);
       return;
     }
@@ -40,25 +44,46 @@ BlenderFrame::BlenderFrame(std::unique_ptr<Frame> base_frame) : Frame(base_frame
   base_frame_ = std::move(base_frame);
 }
 
-void BlenderFrame::UpdateOverlay(std::unique_ptr<Frame> blend_frame, uint8_t alpha) {
+void BlenderFrame::UpdateOverlay(std::unique_ptr<Frame> blend_frame,
+                                 const std::vector<uint8_t>& alpha_mask) {
   assert(base_frame_->size == blend_frame->size);
   blend_frame_ = std::move(blend_frame);
   translucent_blend_ = blend_frame_->IsTranslucent();
-  alpha_ = alpha;  // Ignored if `translucent_blend_`
+
+  // Alpha is ignored if `translucent_blend_`
+  if (!translucent_blend_) {
+    assert(!alpha_mask.empty());
+
+    bool uniform_alpha = true;
+    uint8_t first_alpha = alpha_mask[0];
+    for (uint8_t alpha : alpha_mask) {
+      if (alpha != first_alpha) {
+        uniform_alpha = false;
+        break;
+      }
+    }
+    if (uniform_alpha) {
+      alpha_mask_.resize(1);
+      alpha_mask_[0] = first_alpha;
+    } else {
+      alpha_mask_ = alpha_mask;
+    }
+  }
   // We are not certain whether the new blend_frame's internal position is aligned.
   // Just invoke a reset to all three frame entities.
   Reset();
 }
 
 PixelWithStatus BlenderFrame::GetPixelData() {
-  if (blend_frame_ == nullptr || (alpha_ == 0 && !translucent_blend_)) {
+  if (blend_frame_ == nullptr ||
+      (!translucent_blend_ && alpha_mask_.size() == 1 && alpha_mask_[0] == 0)) {
     return base_frame_->GetPixelData();
   }
 
   StripSizeType scan_pos = index_++;
-
   auto overlay = translucent_blend_ ? blend_frame_->GetPixelData().blend_pixel
-                                    : AlphaBlendPixel({blend_frame_->GetPixelData().rgb, alpha_});
+                                    : AlphaBlendPixel({blend_frame_->GetPixelData().rgb,
+                                                       alpha_mask_[scan_pos % alpha_mask_.size()]});
 
   return PixelWithStatus{.rgb = overlay.Blend(base_frame_->GetPixelData().rgb),
                          .end_of_frame = scan_pos >= size};

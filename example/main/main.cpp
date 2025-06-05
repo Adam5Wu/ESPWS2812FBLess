@@ -68,11 +68,14 @@ void _lightshow_wait_for_finish(const Renderer& renderer, int& target_idx) {
 
 esp_err_t _lightshow() {
   ESP_LOGI(TAG, "Creating LightShow renderer...");
-  ASSIGN_OR_RETURN(auto renderer, Renderer::Create(STRIP_SIZE, TARGET_FPS));
+  ASSIGN_OR_RETURN(auto renderer,
+                   Renderer::Create(STRIP_SIZE, TARGET_FPS, Renderer::BlendMode::SMOOTH_4X4R));
 
   // You can pre-program transitions before starting the driver
   int target_idx = 0;
   ESP_LOGI(TAG, "Test uniform color LightShow targets...");
+  ESP_RETURN_ON_ERROR(
+      renderer->EnqueueOrError(UniformColorTarget::Create(5000, {0x02, 0x04, 0x07})));
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(UniformColorTarget::Create(1000, {0x32, 0x00, 0x00})));
   ESP_RETURN_ON_ERROR(

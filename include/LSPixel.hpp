@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cmath>
+#include <algorithm>
 #include <string.h>
 
 #include "sdkconfig.h"

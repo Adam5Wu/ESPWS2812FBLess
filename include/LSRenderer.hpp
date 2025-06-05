@@ -40,8 +40,17 @@ inline constexpr EventBits_t RENDERER_IDLE_TARGET = BIT3;
 
 class Renderer {
  public:
-  static utils::DataOrError<std::unique_ptr<Renderer>> Create(StripSizeType strip_size,
-                                                              uint8_t target_fps = kDefaultFPS);
+  enum class BlendMode {
+    BASIC,        // Each pixel is blended independently (256-levels)
+    SMOOTH_2X,    // 2 neighboring pixels are blended as a unit (512-levels)
+    SMOOTH_4X,    // 4 adjacent pixels are blended as a unit (1024-levels)
+    SMOOTH_4XR,   // Same as above, but apply pseudo-random ordering to reduce sweeping effect
+    SMOOTH_4X4R,  // Same as above, but apply pseudo-random ordering across 4 groups
+  };
+
+  static utils::DataOrError<std::unique_ptr<Renderer>> Create(
+      StripSizeType strip_size, uint8_t target_fps = kDefaultFPS,
+      BlendMode blend_mode = BlendMode::BASIC);
 
   ~Renderer() { vSemaphoreDelete(target_lock_); };
 
@@ -87,6 +96,7 @@ class Renderer {
   SemaphoreHandle_t target_lock_;
   mutable EventGroupHandle_t events_;
   std::unique_ptr<Frame> base_frame_;
+  BlendMode blend_mode_;
 
   BlenderFrame* blender_frame_ = nullptr;
   uint64_t base_frame_time_ = 0;
@@ -95,11 +105,12 @@ class Renderer {
   std::queue<std::unique_ptr<Target>> targets_;
 
   Renderer(uint32_t frame_interval_us, SemaphoreHandle_t&& target_lock, EventGroupHandle_t&& events,
-           std::unique_ptr<Frame> init_frame)
+           std::unique_ptr<Frame> init_frame, BlendMode blend_mode)
       : frame_interval_us_(frame_interval_us),
         target_lock_(std::move(target_lock)),
         events_(std::move(events)),
-        base_frame_(std::move(init_frame)) {}
+        base_frame_(std::move(init_frame)),
+        blend_mode_(blend_mode) {}
 };
 
 }  // namespace zw::esp8266::lightshow
