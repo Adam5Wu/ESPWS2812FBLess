@@ -35,6 +35,7 @@ class Frame {
   Frame& operator=(const Frame&) = delete;
 
   enum class FrameType {
+    kCustom,
     kUniformColor,
     kBlender,
     kColorDot,

@@ -55,19 +55,19 @@ class Renderer {
   ~Renderer() { vSemaphoreDelete(target_lock_); };
 
   // Enqueue a target to be rendered.
-  // - If `drop_ongoing` is true, all queued and ongoing targets will be dropped,
-  //   which will effectively start rendering the new target immediately.
-  // - Otherwise, the new target is placed at the end of queue and will be rendered
-  //   in the prescribed order.
-  void Enqueue(std::unique_ptr<Target> target, bool drop_ongoing = false);
+  // The new target is placed at the end of queue and will be rendered in order.
+  void Enqueue(Target::RefPtr target);
 
   // Short-hand Enqueue for easy cascading from target creation.
-  esp_err_t EnqueueOrError(utils::DataOrError<std::unique_ptr<Target>>&& target,
-                           bool drop_ongoing = false) {
+  esp_err_t EnqueueOrError(utils::DataOrError<Target::RefPtr>&& target) {
     if (!target) return target.error();
-    Enqueue(std::move(*target), drop_ongoing);
+    Enqueue(std::move(*target));
     return ESP_OK;
   }
+
+  // Aborts current ongoing target and moves on to the next in queue.
+  // Primarily useful for terminating a (forever) looping target.
+  void Skip();
 
   // Clear all queued targets.
   // - If `drop_ongoing` is true, the ongoing target will be abandoned, which will
@@ -102,7 +102,7 @@ class Renderer {
   uint64_t base_frame_time_ = 0;
   uint64_t target_base_time_ = 0;
   uint32_t overshoot_us_ = 0;
-  std::queue<std::unique_ptr<Target>> targets_;
+  std::queue<Target::RefPtr> targets_;
 
   Renderer(uint32_t frame_interval_us, SemaphoreHandle_t&& target_lock, EventGroupHandle_t&& events,
            std::unique_ptr<Frame> init_frame, BlendMode blend_mode)

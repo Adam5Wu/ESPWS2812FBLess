@@ -71,7 +71,8 @@ std::vector<uint8_t> AlphaMask4XR(ProgressionType pgrs) {
   uint8_t active_idx = (pgrs >> SMOOTH_BLEND_4X_FRAC_SIZE) & 3;
   for (uint8_t i = 0; i < 4; i++) {
     if (i < active_idx) {
-      alpha_mask[SMOOTH_BLEND_4X_RAND_MAP[i]] = pgrs_to_alpha(pgrs_wait | (SMOOTH_BLEND_4X_FRAC << 2));
+      alpha_mask[SMOOTH_BLEND_4X_RAND_MAP[i]] =
+          pgrs_to_alpha(pgrs_wait | (SMOOTH_BLEND_4X_FRAC << 2));
     } else if (i == active_idx) {
       alpha_mask[SMOOTH_BLEND_4X_RAND_MAP[i]] = pgrs_to_alpha(pgrs_active);
     } else {
@@ -90,7 +91,8 @@ std::vector<uint8_t> AlphaMask4X4R(ProgressionType pgrs) {
   for (uint8_t i = 0; i < 4 * 4; i++) {
     uint8_t idx = i % 4;
     if (idx < active_idx) {
-      alpha_mask[SMOOTH_BLEND_4X_RAND_MAP[i]] = pgrs_to_alpha(pgrs_wait | (SMOOTH_BLEND_4X_FRAC << 2));
+      alpha_mask[SMOOTH_BLEND_4X_RAND_MAP[i]] =
+          pgrs_to_alpha(pgrs_wait | (SMOOTH_BLEND_4X_FRAC << 2));
     } else if (idx == active_idx) {
       alpha_mask[SMOOTH_BLEND_4X_RAND_MAP[i]] = pgrs_to_alpha(pgrs_active);
     } else {
@@ -128,18 +130,22 @@ utils::DataOrError<std::unique_ptr<Renderer>> Renderer::Create(StripSizeType str
       std::make_unique<UniformColorFrame>(strip_size, RGB8BPixel::BLACK()), blend_mode));
 }
 
-void Renderer::Enqueue(std::unique_ptr<Target> target, bool drop_ongoing) {
+void Renderer::Enqueue(Target::RefPtr target) {
   // Wait forever for the lock, not expecting failure
   xSemaphoreTake(target_lock_, portMAX_DELAY);
-  if (drop_ongoing) {
-    if (!targets_.empty()) {
-      xEventGroupSetBits(events_, RENDERER_ABORT_TARGET);
-      while (!targets_.empty()) targets_.pop();
-      target_base_time_ = 0;
-    }
-  }
   targets_.push(std::move(target));
   xEventGroupClearBits(events_, RENDERER_IDLE_TARGET);
+  xSemaphoreGive(target_lock_);
+}
+
+void Renderer::Skip() {
+  // Wait forever for the lock, not expecting failure
+  xSemaphoreTake(target_lock_, portMAX_DELAY);
+  if (!targets_.empty()) {
+    xEventGroupSetBits(events_, RENDERER_ABORT_TARGET);
+    targets_.pop();
+    target_base_time_ = 0;
+  }
   xSemaphoreGive(target_lock_);
 }
 
@@ -209,7 +215,9 @@ Frame* Renderer::RenderFrame() {
         // Note that smooth catchup only applies for overshoots between targets.
         // Any tardiness during a target transition will result in frame skipping.
         uint32_t time_passed = current_time - target_base_time_;
-        ProgressionType pgrs = progression(time_passed, cur_target.duration_us);
+        uint32_t target_duration = cur_target.DurationUS();
+
+        ProgressionType pgrs = progression(time_passed, target_duration);
         auto new_frame_ = cur_target.RenderFrame(pgrs);
 
         if (pgrs == PGRS_FULL) {
@@ -226,11 +234,11 @@ Frame* Renderer::RenderFrame() {
             base_frame_->Reset();
           }
 
-          targets_.pop();
+          if (cur_target.Loop() == kNoLoop) targets_.pop();
           target_base_time_ = 0;
 
           // There maybe some overtime.
-          uint32_t overtime = time_passed - cur_target.duration_us;
+          uint32_t overtime = time_passed - target_duration;
           // If it is less than one frame interval, it will be automatically corrected.
           // So we only need to track the whole-frame overshoots.
           overshoot_us_ += overtime - overtime % frame_interval_us_;
