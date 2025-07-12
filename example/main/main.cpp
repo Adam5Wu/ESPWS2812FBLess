@@ -27,7 +27,7 @@ namespace {
 
 inline constexpr char TAG[] = "Main";
 
-inline constexpr StripSizeType STRIP_SIZE = 106;
+inline constexpr StripSizeType STRIP_SIZE = 60;
 inline constexpr uint8_t TARGET_FPS = 80;
 // inline const IOConfig CONFIG_WS2812 = CONFIG_WS2812_CLASSIC();
 inline const IOConfig CONFIG_WS2812 = CONFIG_WS2812_NEW();
@@ -68,11 +68,19 @@ void _lightshow_wait_for_finish(const Renderer& renderer, int& target_idx) {
 
 esp_err_t _lightshow() {
   ESP_LOGI(TAG, "Creating LightShow renderer...");
-  ASSIGN_OR_RETURN(auto renderer, Renderer::Create(STRIP_SIZE, TARGET_FPS));
+  ASSIGN_OR_RETURN(auto renderer,
+                   Renderer::Create(STRIP_SIZE, TARGET_FPS, Renderer::BlendMode::SMOOTH_4X4R));
 
   // You can pre-program transitions before starting the driver
   int target_idx = 0;
   ESP_LOGI(TAG, "Test uniform color LightShow targets...");
+  std::unique_ptr<ChainedTarget> chained_target = std::make_unique<ChainedTarget>();
+  ESP_RETURN_ON_ERROR(
+      chained_target->AppendOrError(UniformColorTarget::Create(5000, {0x02, 0x04, 0x07})));
+  ESP_RETURN_ON_ERROR(
+      chained_target->AppendOrError(UniformColorTarget::Create(1000, RGB8BPixel::BLACK())));
+  ESP_RETURN_ON_ERROR(chained_target->SetLoop(2));
+  renderer->Enqueue(std::move(chained_target));
   ESP_RETURN_ON_ERROR(
       renderer->EnqueueOrError(UniformColorTarget::Create(1000, {0x32, 0x00, 0x00})));
   ESP_RETURN_ON_ERROR(

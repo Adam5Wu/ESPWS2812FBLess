@@ -17,7 +17,7 @@ inline constexpr char TAG[] = "LSTarget";
 
 }  // namespace
 
-utils::DataOrError<uint32_t> Target::PrepareDuration(uint32_t duration_ms) {
+utils::DataOrError<uint32_t> StaticDurationTarget::PrepareDuration(uint32_t duration_ms) {
   if (duration_ms > kMaxTargetDurationMS) {
     ESP_LOGW(TAG, "Target duration too long");
     return ESP_ERR_INVALID_ARG;
@@ -48,15 +48,15 @@ DotState ColorDotTarget::CurrentDotState(ProgressionType pgrs) const {
           .pos_pgrs = (ProgressionType)blend_value(base_dot_.pos_pgrs, dot.pos_pgrs, pgrs)};
 }
 
-utils::DataOrError<std::unique_ptr<Target>> ColorDotTarget::Create(
-    uint32_t duration_ms, DotState dot, std::optional<DotState> def_dot) {
+utils::DataOrError<Target::RefPtr> ColorDotTarget::Create(uint32_t duration_ms, DotState dot,
+                                                          std::optional<DotState> def_dot) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
   ESP_RETURN_ON_ERROR(ValidateDots(dot, def_dot));
-  return std::unique_ptr<Target>(new ColorDotTarget(duration_us, dot, def_dot));
+  return RefPtr(new ColorDotTarget(duration_us, dot, def_dot));
 }
 
 std::unique_ptr<Frame> ColorDotTarget::RenderInit(std::unique_ptr<Frame> base_frame) {
-  base_frame = Target::RenderInit(std::move(base_frame));
+  base_frame = DrawingTarget::RenderInit(std::move(base_frame));
   switch (base_frame->Type()) {
     case Frame::FrameType::kUniformColor:
       bg_color_ = static_cast<const UniformColorFrame&>(*base_frame).color;
@@ -84,20 +84,19 @@ std::unique_ptr<Frame> ColorDotTarget::RenderInit(std::unique_ptr<Frame> base_fr
   return nullptr;
 }
 
-std::unique_ptr<Frame> ColorDotTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> ColorDotTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   return std::make_unique<ColorDotFrame>(frame_size_, CurrentDotState(pgrs), bg_color_);
 }
 
 //------------------------------------
 // WiperTarget
 
-utils::DataOrError<std::unique_ptr<Target>> WiperTarget::Create(uint32_t duration_ms,
-                                                                const Config& config) {
+utils::DataOrError<Target::RefPtr> WiperTarget::Create(uint32_t duration_ms, const Config& config) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
-  return std::unique_ptr<Target>(new WiperTarget(duration_us, config));
+  return RefPtr(new WiperTarget(duration_us, config));
 }
 
-std::unique_ptr<Frame> WiperTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> WiperTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   if (pgrs == 0 || pgrs == PGRS_FULL) {
     RGBA8BPixel uniform_color =
         (pgrs == 0) ? ((config_.dir == Direction::LeftToRight) ? config_.r_color : config_.l_color)
@@ -165,18 +164,18 @@ WiperTarget::Config WiperTarget::ColorWipeConfig(float width, RGB888 color, Dire
 //------------------------------------
 // RGBColorWheelTarget
 
-utils::DataOrError<std::unique_ptr<Target>> RGBColorWheelTarget::Create(uint32_t duration_ms,
-                                                                        const Config& config) {
+utils::DataOrError<Target::RefPtr> RGBColorWheelTarget::Create(uint32_t duration_ms,
+                                                               const Config& config) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
   if (config.width < 1) {
     ESP_LOGW(TAG, "Invalid wheel width");
     return ESP_ERR_INVALID_ARG;
   }
-  return std::unique_ptr<Target>(new RGBColorWheelTarget(duration_us, config));
+  return RefPtr(new RGBColorWheelTarget(duration_us, config));
 }
 
 std::unique_ptr<Frame> RGBColorWheelTarget::RenderInit(std::unique_ptr<Frame> base_frame) {
-  base_frame = Target::RenderInit(std::move(base_frame));
+  base_frame = DrawingTarget::RenderInit(std::move(base_frame));
   if (base_frame->Type() == Frame::FrameType::kRGBColorWheel) {
     auto& wheel_frame = static_cast<const RGBColorWheelFrame&>(*base_frame);
     if (wheel_frame.state.width == config_.width &&
@@ -192,7 +191,7 @@ std::unique_ptr<Frame> RGBColorWheelTarget::RenderInit(std::unique_ptr<Frame> ba
   return std::move(base_frame);
 }
 
-std::unique_ptr<Frame> RGBColorWheelTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> RGBColorWheelTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   ColorWheelState state;
   reinterpret_cast<ColorWheelProp&>(state) = config_;
   state.pos_pgrs = blend_value(config_.wheel_from, config_.wheel_to, pgrs);
@@ -204,18 +203,18 @@ std::unique_ptr<Frame> RGBColorWheelTarget::RenderFrame(ProgressionType pgrs) {
 //------------------------------------
 // HSVColorWheelTarget
 
-utils::DataOrError<std::unique_ptr<Target>> HSVColorWheelTarget::Create(uint32_t duration_ms,
-                                                                        const Config& config) {
+utils::DataOrError<Target::RefPtr> HSVColorWheelTarget::Create(uint32_t duration_ms,
+                                                               const Config& config) {
   ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
   if (config.width < 1) {
     ESP_LOGW(TAG, "Invalid wheel width");
     return ESP_ERR_INVALID_ARG;
   }
-  return std::unique_ptr<Target>(new HSVColorWheelTarget(duration_us, config));
+  return RefPtr(new HSVColorWheelTarget(duration_us, config));
 }
 
 std::unique_ptr<Frame> HSVColorWheelTarget::RenderInit(std::unique_ptr<Frame> base_frame) {
-  base_frame = Target::RenderInit(std::move(base_frame));
+  base_frame = DrawingTarget::RenderInit(std::move(base_frame));
   if (base_frame->Type() == Frame::FrameType::kHSVColorWheel) {
     auto& wheel_frame = static_cast<const HSVColorWheelFrame&>(*base_frame);
     if (wheel_frame.state.width == config_.width &&
@@ -231,7 +230,7 @@ std::unique_ptr<Frame> HSVColorWheelTarget::RenderInit(std::unique_ptr<Frame> ba
   return std::move(base_frame);
 }
 
-std::unique_ptr<Frame> HSVColorWheelTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> HSVColorWheelTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   ColorWheelState state;
   reinterpret_cast<ColorWheelProp&>(state) = config_;
   state.pos_pgrs = blend_value(config_.wheel_from, config_.wheel_to, pgrs);

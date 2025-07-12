@@ -1,6 +1,6 @@
 {
   "name": "ESPWS2812FBLess",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Framebuffer-less WS2812 driver for ESP8266 RTOS.",
   "keywords": "ws2812, neopixel, rtos, esp8266",
   "frameworks": "esp8266-rtos-sdk",
@@ -8,7 +8,7 @@
   "dependencies": [
     {
       "name": "ZWUtils-IDF8266",
-      "version": "https://github.com/Adam5Wu/ZWUtils_IDF8266.git#v1.0.2"
+      "version": "https://github.com/Adam5Wu/ZWUtils_IDF8266.git#v1.1.1"
     }
   ],
   "authors": [

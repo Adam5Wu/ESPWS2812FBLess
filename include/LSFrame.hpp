@@ -35,6 +35,7 @@ class Frame {
   Frame& operator=(const Frame&) = delete;
 
   enum class FrameType {
+    kCustom,
     kUniformColor,
     kBlender,
     kColorDot,
@@ -82,15 +83,22 @@ class BlenderFrame : public Frame {
     if (blend_frame_ != nullptr) blend_frame_->Reset();
   }
 
-  // Replace current blend frame with a new frame, and new alpha
+  // Replace current blend frame with a new frame, and new alpha.
   // Will also reset rendering location.
   // Note that if the blend_frame is translucent, alpha is ignored.
-  void UpdateOverlay(std::unique_ptr<Frame> blend_frame, uint8_t alpha);
+  void UpdateOverlay(std::unique_ptr<Frame> blend_frame, const std::vector<uint8_t>& alpha_mask);
+
+  inline void UpdateOverlay(std::unique_ptr<Frame> blend_frame, uint8_t alpha) {
+    UpdateOverlay(std::move(blend_frame), std::vector<uint8_t>{alpha});
+  }
 
 #ifndef NDEBUG
   std::string DebugString() const override {
+    std::string alpha_str;
+    for (uint8_t alpha : alpha_mask_) alpha_str.append(std::to_string(alpha)).push_back(',');
+    alpha_str.pop_back();
     return "Blender[" + base_frame_->DebugString() + "]: " + blend_frame_->DebugString() + " @" +
-           std::to_string(alpha_);
+           (alpha_mask_.size() == 1 ? alpha_str : "{" + alpha_str + "}");
   }
 #endif
 
@@ -100,8 +108,8 @@ class BlenderFrame : public Frame {
  private:
   std::unique_ptr<Frame> base_frame_;
   std::unique_ptr<Frame> blend_frame_;
+  std::vector<uint8_t> alpha_mask_;
   bool translucent_blend_;
-  uint8_t alpha_;
 };
 
 // A frame that displays a single color
