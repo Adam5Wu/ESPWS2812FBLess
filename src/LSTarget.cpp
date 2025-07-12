@@ -84,7 +84,7 @@ std::unique_ptr<Frame> ColorDotTarget::RenderInit(std::unique_ptr<Frame> base_fr
   return nullptr;
 }
 
-std::unique_ptr<Frame> ColorDotTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> ColorDotTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   return std::make_unique<ColorDotFrame>(frame_size_, CurrentDotState(pgrs), bg_color_);
 }
 
@@ -96,7 +96,7 @@ utils::DataOrError<Target::RefPtr> WiperTarget::Create(uint32_t duration_ms, con
   return RefPtr(new WiperTarget(duration_us, config));
 }
 
-std::unique_ptr<Frame> WiperTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> WiperTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   if (pgrs == 0 || pgrs == PGRS_FULL) {
     RGBA8BPixel uniform_color =
         (pgrs == 0) ? ((config_.dir == Direction::LeftToRight) ? config_.r_color : config_.l_color)
@@ -191,7 +191,7 @@ std::unique_ptr<Frame> RGBColorWheelTarget::RenderInit(std::unique_ptr<Frame> ba
   return std::move(base_frame);
 }
 
-std::unique_ptr<Frame> RGBColorWheelTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> RGBColorWheelTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   ColorWheelState state;
   reinterpret_cast<ColorWheelProp&>(state) = config_;
   state.pos_pgrs = blend_value(config_.wheel_from, config_.wheel_to, pgrs);
@@ -230,7 +230,7 @@ std::unique_ptr<Frame> HSVColorWheelTarget::RenderInit(std::unique_ptr<Frame> ba
   return std::move(base_frame);
 }
 
-std::unique_ptr<Frame> HSVColorWheelTarget::RenderFrame(ProgressionType pgrs) {
+std::unique_ptr<Frame> HSVColorWheelTarget::RenderFrame(uint32_t time_passed, ProgressionType pgrs) {
   ColorWheelState state;
   reinterpret_cast<ColorWheelProp&>(state) = config_;
   state.pos_pgrs = blend_value(config_.wheel_from, config_.wheel_to, pgrs);

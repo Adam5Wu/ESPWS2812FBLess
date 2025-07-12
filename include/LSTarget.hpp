@@ -55,7 +55,7 @@ class Target {
   }
 
   // Render a frame of the light-show with the given progression.
-  virtual std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) = 0;
+  virtual std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) = 0;
 };
 
 // Target with static duration
@@ -110,7 +110,7 @@ class ChainedTarget : public Target {
     return (**iterator_)->RenderInit(std::move(base_frame));
   }
 
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override {
+  std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) override {
     // This function is only supposed to be called after rendering start.
 #ifdef NDEBUG
     if (!iterator_.has_value()) return nullptr;
@@ -118,7 +118,7 @@ class ChainedTarget : public Target {
     assert(iterator_.has_value());
 #endif
 
-    return (**iterator_)->RenderFrame(pgrs);
+    return (**iterator_)->RenderFrame(time_passed, pgrs);
   }
 
   esp_err_t SetLoop(uint8_t loop) {
@@ -163,7 +163,9 @@ class NoopTarget : public StaticDurationTarget {
     ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
     return RefPtr(new NoopTarget(duration_us));
   }
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override { return nullptr; }
+  std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) override {
+    return nullptr;
+  }
 
  protected:
   NoopTarget(uint32_t duration_us) : StaticDurationTarget(duration_us) {}
@@ -193,7 +195,7 @@ class UniformColorTarget : public DrawingTarget {
     ASSIGN_OR_RETURN(uint32_t duration_us, PrepareDuration(duration_ms));
     return RefPtr(new UniformColorTarget(duration_us, color));
   }
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override {
+  std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) override {
     // We don't deal with progression, the renderer will blend for us.
     return std::make_unique<UniformColorFrame>(frame_size_, color);
   }
@@ -217,7 +219,7 @@ class ColorDotTarget : public DrawingTarget {
                                            std::optional<DotState> def_dot = std::nullopt);
 
   std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+  std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) override;
 
  protected:
   // If provided, will be used as base_dot if the base_frame is not a `ColorDotFrame`.
@@ -264,7 +266,7 @@ class WiperTarget : public DrawingTarget {
   // The transition is rendered using logistic curve between [-3.3, 3.3].
   static Config ColorWipeConfig(float width, RGB888 color, Direction dir);
 
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+  std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) override;
 
  protected:
   const Config config_;
@@ -285,7 +287,7 @@ class RGBColorWheelTarget : public DrawingTarget {
   static utils::DataOrError<RefPtr> Create(uint32_t duration_ms, const Config& config);
 
   std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+  std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) override;
 
  protected:
   const Config config_;
@@ -306,7 +308,7 @@ class HSVColorWheelTarget : public DrawingTarget {
   static utils::DataOrError<RefPtr> Create(uint32_t duration_ms, const Config& config);
 
   std::unique_ptr<Frame> RenderInit(std::unique_ptr<Frame> base_frame) override;
-  std::unique_ptr<Frame> RenderFrame(ProgressionType pgrs) override;
+  std::unique_ptr<Frame> RenderFrame(uint32_t time_passed, ProgressionType pgrs) override;
 
  protected:
   const Config config_;

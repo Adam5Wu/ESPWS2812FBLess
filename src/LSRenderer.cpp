@@ -218,7 +218,7 @@ Frame* Renderer::RenderFrame() {
         uint32_t target_duration = cur_target.DurationUS();
 
         ProgressionType pgrs = progression(time_passed, target_duration);
-        auto new_frame_ = cur_target.RenderFrame(pgrs);
+        auto new_frame_ = cur_target.RenderFrame(time_passed, pgrs);
 
         if (pgrs == PGRS_FULL) {
           if (new_frame_ != nullptr) {
